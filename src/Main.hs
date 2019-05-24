@@ -196,7 +196,7 @@ data TNum
   | TTwo
   deriving (Show)
 
-data Trade = Trade1
+data Trade = Trade
   { _tNum :: !TNum
   , _sell :: !Corp
   , _buy :: !Corp
@@ -207,8 +207,7 @@ Lens.makeLenses ''Trade
 data Action
   = ABuild !Build
   | StopBuild
-  | ATrade1 !Trade1
-  | ATrade2 !Trade2
+  | ATrade !Trade
   deriving (Show)
 
 subtractReserve :: Corp -> Int -> GameState -> GameState
@@ -267,13 +266,20 @@ giveShare corp gameState =
     (corpLens corp)) %~
    (subtract 1))
 
-execTrade Trade {_tNum = tnum,_sell = sell, _buy = buy} gameState =
-  gameState & takeShare buy (case tnum of TOne -> 1 ; TTwo 2) & giveShare sell & rotatePlayer
+execTrade Trade {_tNum = tnum, _sell = sell, _buy = buy} gameState =
+  gameState &
+  takeShare
+    buy
+    (case tnum of
+       TOne -> 1
+       TTwo -> 2) &
+  giveShare sell &
+  rotatePlayer
 
 execMove :: Action -> GameState -> GameState
 execMove (ABuild a) = execBuild a
 execMove (StopBuild) = execStopBuild
-execMove (ATrade t) = execTrade1 t
+execMove (ATrade t) = execTrade t
 
 divvyStartingShares :: Random.MonadRandom m => GameState -> m GameState
 divvyStartingShares gs = do
@@ -361,10 +367,10 @@ legalMoves gs =
                   let resCount =
                         (gs & _reserve & (Lens.view (corpLens buyCorp)))
                   ((case ((resCount >= 1) && ((ownedCount + 1) <= maxCount)) of
-                      True -> [ATrade1 (Trade1 sellCorp buyCorp)]
+                      True -> [ATrade (Trade TOne sellCorp buyCorp)]
                       _ -> []) ++
                    (case ((resCount >= 2) && ((ownedCount + 2) <= maxCount)) of
-                      True -> [ATrade2 (Trade2 sellCorp buyCorp)]
+                      True -> [ATrade (Trade TTwo sellCorp buyCorp)]
                       _ -> [])))
             _ -> [StopBuild]))
 
