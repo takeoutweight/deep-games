@@ -191,19 +191,18 @@ data Build = Build
 
 Lens.makeLenses ''Build
 
-data Trade1 = Trade1
-  { _sell1 :: !Corp
-  , _buy1 :: !Corp
+data TNum
+  = TOne
+  | TTwo
+  deriving (Show)
+
+data Trade = Trade1
+  { _tNum :: !TNum
+  , _sell :: !Corp
+  , _buy :: !Corp
   } deriving (Show)
 
-Lens.makeLenses ''Trade1
-
-data Trade2 = Trade2
-  { _sell2 :: !Corp
-  , _buy2 :: !Corp
-  } deriving (Show)
-
-Lens.makeLenses ''Trade2
+Lens.makeLenses ''Trade
 
 data Action
   = ABuild !Build
@@ -268,17 +267,13 @@ giveShare corp gameState =
     (corpLens corp)) %~
    (subtract 1))
 
-execTrade1 Trade1 {_sell1 = sell, _buy1 = buy} gameState =
-  gameState & takeShare buy 1 & giveShare sell & rotatePlayer
-
-execTrade2 Trade2 {_sell2 = sell, _buy2 = buy} gameState =
-  gameState & takeShare buy 2 & giveShare sell & rotatePlayer
+execTrade Trade {_tNum = tnum,_sell = sell, _buy = buy} gameState =
+  gameState & takeShare buy (case tnum of TOne -> 1 ; TTwo 2) & giveShare sell & rotatePlayer
 
 execMove :: Action -> GameState -> GameState
 execMove (ABuild a) = execBuild a
 execMove (StopBuild) = execStopBuild
-execMove (ATrade1 t) = execTrade1 t
-execMove (ATrade2 t) = execTrade2 t
+execMove (ATrade t) = execTrade1 t
 
 divvyStartingShares :: Random.MonadRandom m => GameState -> m GameState
 divvyStartingShares gs = do
