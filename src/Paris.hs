@@ -208,6 +208,7 @@ data Action
   = ABuild !Build
   | StopBuild
   | ATrade !Trade
+  | ATakeInitialShare !Holding
   deriving (Show)
 
 subtractReserve :: Corp -> Int -> GameState -> GameState
@@ -276,12 +277,13 @@ execTrade Trade {_tNum = tnum, _sell = sell, _buy = buy} gameState =
   giveShare sell &
   rotatePlayer
 
-execMove :: Action -> GameState -> GameState
-execMove (ABuild a) = execBuild a
-execMove (StopBuild) = execStopBuild
-execMove (ATrade t) = execTrade t
+execTakeInitialShare :: Holding -> GameState -> GameState
+execTakeInitialShare h gs =
+  gs & reserve %~ (\rs -> (opHolding (-) rs h)) &
+  (playerHoldings . (Lens.ix (_activePlayer gs)) . private) %~
+  (opHolding (+) h) & rotatePlayer
 
-divvyStartingShares :: Random.MonadRandom m => GameState -> m GameState
+divvyStartingShares :: Random.MonadRandom m => GameState -> m [Action]
 divvyStartingShares gs = do
   deck <- (allCorps & map (replicate 31) & concat & Shuffle.shuffleM)
   let takeNum =
@@ -290,16 +292,26 @@ divvyStartingShares gs = do
           4 -> 8
           5 -> 6
           6 -> 5
-  let (_, gs'') =
+  let (_, actions') =
         (take (_numPlayers gs) [0 ..]) &
         List.foldl'
-          (\(deck', gs) player ->
+          (\(deck', actions) player ->
              let (mine, restDeck) = List.splitAt takeNum deck'
-                 gs' =
-                   List.foldl' (\gs corp -> takePrivateShare corp gs) gs mine
-             in (restDeck, rotatePlayer gs'))
-          (deck, gs)
-  return gs''
+                 action =
+                   ATakeInitialShare
+                     (List.foldl'
+                        (\holding corp -> holding & corpLens corp %~ (+ 1))
+                        (defaultHolding 0)
+                        mine)
+             in (restDeck, action : actions))
+          (deck, [])
+  return actions'
+
+execMove :: Action -> GameState -> GameState
+execMove (ABuild a) = execBuild a
+execMove (StopBuild) = execStopBuild
+execMove (ATrade t) = execTrade t
+execMove (ATakeInitialShare h) = execTakeInitialShare h
 
   
 
@@ -640,14 +652,13 @@ drawHoldings gs =
 -- drawPCMap = do
 --   PS.renderDias (PS.PostscriptOptions "pcmap.eps" (D.mkWidth (8.5 * 72)) PS.EPS) [theMap]
 
-main :: IO ()
-main = putStrLn "Hello, Haskell!"
-
 type PCDiag = Diagram SVG.B
 drawPCMap = do
   state <-
     Random.evalRandIO
-      (do initState <- divvyStartingShares defaultState
+      (do initDivvys <- (divvyStartingShares defaultState)
+          let initState =
+                List.foldl' (\gs act -> execMove act gs) defaultState initDivvys
           (randomGame initState))
   let diag = (drawHoldings state) <> (drawState state) <> theMap
   SVG.renderSVG "pcmap.svg" (D.mkSizeSpec2D (Just 400) (Just 400)) diag
