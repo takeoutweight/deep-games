@@ -152,7 +152,7 @@ data Holding = Holding
   , _purple :: !Int
   , _black :: !Int
   , _red :: !Int
-  } deriving (Show)
+  } deriving (Show, Eq)
 
 Lens.makeLenses ''Holding
 
@@ -187,20 +187,20 @@ Lens.makeLenses ''GameState
 data Build = Build
   { _buildCorp :: !Corp
   , _buildHex :: !Hex
-  } deriving (Show)
+  } deriving (Show, Eq)
 
 Lens.makeLenses ''Build
 
 data TNum
   = TOne
   | TTwo
-  deriving (Show)
+  deriving (Show, Eq)
 
 data Trade = Trade
   { _tNum :: !TNum
   , _sell :: !Corp
   , _buy :: !Corp
-  } deriving (Show)
+  } deriving (Show, Eq)
 
 Lens.makeLenses ''Trade
 
@@ -209,7 +209,7 @@ data Action
   | StopBuild
   | ATrade !Trade
   | ATakeInitialShare !Holding
-  deriving (Show)
+  deriving (Show, Eq)
 
 subtractReserve :: Corp -> Int -> GameState -> GameState
 subtractReserve corp num gs =
@@ -392,15 +392,22 @@ defaultHolding x =
 
 defaultPlayerHolding = PlayerHolding (defaultHolding 0) (defaultHolding 0)
 
-randomGame ::
+randomPlayout ::
      Random.MonadRandom m => GameState -> [Action] -> m (GameState, [Action])
-randomGame gs actions =
+randomPlayout gs actions =
   let moves = legalMoves gs
   in case null moves of
        True -> return (gs, List.reverse actions)
        False -> do
          move <- Random.uniform moves
-         randomGame (execMove move gs) (move : actions)
+         randomPlayout (execMove move gs) (move : actions)
+
+randomGame :: Random.MonadRandom m => m (GameState, [Action])
+randomGame = do
+  initDivvys <- (divvyStartingShares defaultState)
+  let initState =
+        List.foldl' (\gs act -> execMove act gs) defaultState initDivvys
+  (randomPlayout initState initDivvys)
 
 startHex hex =
   case hex of
@@ -656,12 +663,7 @@ drawHoldings gs =
 
 type PCDiag = Diagram SVG.B
 drawPCMap = do
-  (state, actions) <-
-    Random.evalRandIO
-      (do initDivvys <- (divvyStartingShares defaultState)
-          let initState =
-                List.foldl' (\gs act -> execMove act gs) defaultState initDivvys
-          (randomGame initState initDivvys))
+  (state, actions) <- Random.evalRandIO randomGame
   let diag = (drawHoldings state) <> (drawState state) <> theMap
   SVG.renderSVG "pcmap.svg" (D.mkSizeSpec2D (Just 400) (Just 400)) diag
   return actions
