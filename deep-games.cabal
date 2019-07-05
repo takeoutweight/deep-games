@@ -35,6 +35,7 @@ executable deep-games
                      , diagrams-svg
                      , diagrams-postscript
 --                     , diagrams-svgdom
+                     , exceptions
                      , ghcjs-dom
                      , HUnit
                      , jsaddle-wkwebview
@@ -44,5 +45,7 @@ executable deep-games
                      , multiset
                      , mtl
                      , random-shuffle
+                     , sqlite-simple
+                     , string-combinators
                      , text
                      , transformers

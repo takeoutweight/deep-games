@@ -392,13 +392,15 @@ defaultHolding x =
 
 defaultPlayerHolding = PlayerHolding (defaultHolding 0) (defaultHolding 0)
 
-randomGame gs =
+randomGame ::
+     Random.MonadRandom m => GameState -> [Action] -> m (GameState, [Action])
+randomGame gs actions =
   let moves = legalMoves gs
   in case null moves of
-       True -> return gs
+       True -> return (gs, List.reverse actions)
        False -> do
          move <- Random.uniform moves
-         randomGame (execMove move gs)
+         randomGame (execMove move gs) (move : actions)
 
 startHex hex =
   case hex of
@@ -654,14 +656,15 @@ drawHoldings gs =
 
 type PCDiag = Diagram SVG.B
 drawPCMap = do
-  state <-
+  (state, actions) <-
     Random.evalRandIO
       (do initDivvys <- (divvyStartingShares defaultState)
           let initState =
                 List.foldl' (\gs act -> execMove act gs) defaultState initDivvys
-          (randomGame initState))
+          (randomGame initState initDivvys))
   let diag = (drawHoldings state) <> (drawState state) <> theMap
   SVG.renderSVG "pcmap.svg" (D.mkSizeSpec2D (Just 400) (Just 400)) diag
+  return actions
 {-
 -}
 
