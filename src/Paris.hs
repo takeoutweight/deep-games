@@ -801,5 +801,14 @@ playout explore parentCount gs nstate =
                               explore *
                               (sqrt (log (fromIntegral parentCount)) /
                                (fromIntegral visited)))))))
-      (move, childState) <- Random.fromList moveProbs
-      (playout explore (_visited nstate) (execMove move gs) childState)
+      (action, childState) <- Random.fromList moveProbs
+      (win, childState') <-
+        (playout explore (_visited nstate) (execMove action gs) childState)
+      return
+        ( win
+        , (nstate & (visited %~ (+ 1)) & wins %~
+           (case win == (_activePlayer gs) of
+              True -> (+ 1)
+              False -> id) &
+           (children . moves) %~
+           (Map.insert action childState')))
