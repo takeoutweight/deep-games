@@ -152,7 +152,7 @@ data Holding = Holding
   , _purple :: !Int
   , _black :: !Int
   , _red :: !Int
-  } deriving (Show, Eq)
+  } deriving (Show, Eq, Ord)
 
 Lens.makeLenses ''Holding
 
@@ -187,20 +187,20 @@ Lens.makeLenses ''GameState
 data Build = Build
   { _buildCorp :: !Corp
   , _buildHex :: !Hex
-  } deriving (Show, Eq)
+  } deriving (Show, Eq, Ord)
 
 Lens.makeLenses ''Build
 
 data TNum
   = TOne
   | TTwo
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 data Trade = Trade
   { _tNum :: !TNum
   , _sell :: !Corp
   , _buy :: !Corp
-  } deriving (Show, Eq)
+  } deriving (Show, Eq, Ord)
 
 Lens.makeLenses ''Trade
 
@@ -209,7 +209,7 @@ data Action
   | StopBuild
   | ATrade !Trade
   | ATakeInitialShare !Holding
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 subtractReserve :: Corp -> Int -> GameState -> GameState
 subtractReserve corp num gs =
@@ -533,6 +533,14 @@ dirSE = DV.e ((-1 / 12) @@ D.turn)
 -- I.e. same column, increasing row idx
 dirSW = DV.e ((-5 / 12) @@ D.turn)
 
+mapHexes :: [Hex]
+mapHexes =
+  (zip [0,1 ..] (zip nwOffset seOffset)) &
+  map
+    (\(row, (startCol, endCol)) ->
+       [startCol .. endCol] & map (\col -> (row, col))) &
+  mconcat
+
 theMap :: PCDiag
 theMap =
   (zip [0,1 ..] (zip nwOffset seOffset)) &
@@ -623,6 +631,20 @@ drawHolding holding =
        D.fc (corpColor corp)) &
   (D.vsep 0.4)
 
+-- | FIXME winner chosen nondeterministically from ties
+winner :: GameState -> Int
+winner gs =
+  ((_playerHoldings gs) & Map.toList &
+   map
+     (\(player, holdings) ->
+        let pHolding = (opHolding (+) (_public holdings) (_private holdings))
+        in ( player
+           , (foldlHolding (+) 0 (opHolding (*) pHolding (corpValues gs))))) &
+   List.sortOn snd &
+   map fst &
+   last) --  & (== (_activePlayer gs))
+  
+
 drawHoldings :: GameState -> PCDiag
 drawHoldings gs =
   let corpVals = corpValues gs
@@ -698,3 +720,86 @@ drawPCMap = do
         CMIO.liftIO $ MVar.takeMVar exitMVar
         return ())
 -}
+
+--- UCT
+
+data NodeState = NodeState
+  { _visited :: !Int
+  , _wins :: !Int -- I think this needs to be map of all players unlike two player games?
+  , _children :: !GameTree
+  }
+
+
+
+data GameTree = GameTree
+  { _moves :: !(Map Action NodeState)
+  }
+
+Lens.makeLenses ''GameTree
+Lens.makeLenses ''NodeState
+
+playout ::
+     Random.MonadRandom m
+  => Double
+  -> Int
+  -> GameState
+  -> NodeState
+  -> m (Int, NodeState)
+playout explore parentCount gs nstate =
+  case Map.null (_moves (_children nstate)) of
+    True -> do
+      (gs'', actions) <- randomPlayout gs []
+      return
+        (case actions of
+           [] ->
+             ( (winner gs'')
+             , nstate & visited %~ (+ 1) & wins %~
+               (case (winner gs'') == (_activePlayer gs) of
+                  True -> (+ 1)
+                  False -> id))
+           (action:as) ->
+             let gs' = (execMove action gs)
+             in ( (winner gs'')
+                , (nstate & (visited %~ (+ 1)) & wins %~
+                   (case (winner gs'') == (_activePlayer gs) of
+                      True -> (+ 1)
+                      False -> id) &
+                   (children . moves) %~
+                   (Map.insert
+                      action
+                      (NodeState
+                       { _visited = 1
+                       , _wins =
+                           case (winner gs'') == (_activePlayer gs') of
+                             True -> 1
+                             False -> 0
+                       , _children = GameTree {_moves = Map.empty}
+                       })))))
+    False -> do
+      let moveProbs =
+            legalMoves gs & -- we assume this is nonempty, as we've explored a child already.
+            map
+              (\act ->
+                 case Map.lookup act (_moves (_children nstate)) of
+                   Nothing ->
+                     ( ( act
+                       , (NodeState
+                          { _visited = 1
+                          , _wins = 0
+                          , _children = GameTree {_moves = Map.empty}
+                          }))
+                     , fromIntegral
+                         (round
+                            (100000 *
+                             (explore * (sqrt (log (fromIntegral parentCount)))))))
+                   Just (nstate'@(NodeState visited wins children)) ->
+                     ( (act, nstate')
+                     , fromIntegral
+                         (round
+                            (100000 *
+                             ((fromIntegral wins / fromIntegral visited) +
+                              explore *
+                              (sqrt (log (fromIntegral parentCount)) /
+                               (fromIntegral visited)))))))
+      (move, childState) <- Random.fromList moveProbs
+      (playout explore (_visited nstate) (execMove move gs) childState)
