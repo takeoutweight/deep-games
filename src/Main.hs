@@ -11,7 +11,9 @@ import qualified Persist
 
 main :: IO ()
 main = do
-  actions <- Paris.drawPCMap
+  (gs, actions) <- Paris.randomGame
+  let gs' = (Paris.fixedPlayout gs actions)
+  Paris.drawPCMap gs'
   SQ.withConnection
     "/Users/nathan/src/haskell/deep-games/game-archive.sqlite"
     (Persist.recordGame actions)

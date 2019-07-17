@@ -19,6 +19,7 @@ import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
 import Data.Map.Strict (Map(..))
+import Data.Ratio ((%))
 import qualified Data.Set as Set
 import Data.Set (Set(..))
 import Data.Text (Text)
@@ -374,14 +375,16 @@ legalMoves gs =
                   buyCorp <- allCorps
                   guard (buyCorp /= sellCorp)
                   let ownedCount =
-                        ((ph & _public & (Lens.view (corpLens buyCorp))) +
-                         (ph & _private & (Lens.view (corpLens buyCorp))))
+                        (foldlHolding
+                           (+)
+                           0
+                           (opHolding (+) (_public ph) (_private ph)))
                   let resCount =
                         (gs & _reserve & (Lens.view (corpLens buyCorp)))
-                  ((case ((resCount >= 1) && ((ownedCount + 1) <= maxCount)) of
+                  ((case (resCount >= 1) of
                       True -> [ATrade (Trade TOne sellCorp buyCorp)]
                       _ -> []) ++
-                   (case ((resCount >= 2) && ((ownedCount + 2) <= maxCount)) of
+                   (case ((resCount >= 2) && ((ownedCount + 1) <= maxCount)) of
                       True -> [ATrade (Trade TTwo sellCorp buyCorp)]
                       _ -> [])))
             _ -> [StopBuild]))
@@ -391,6 +394,10 @@ defaultHolding x =
   {_yellow = x, _blue = x, _brown = x, _purple = x, _black = x, _red = x}
 
 defaultPlayerHolding = PlayerHolding (defaultHolding 0) (defaultHolding 0)
+
+fixedPlayout :: GameState -> [Action] -> GameState
+fixedPlayout gs [] = gs
+fixedPlayout gs (act:rst) = fixedPlayout (execMove act gs) rst
 
 randomPlayout ::
      Random.MonadRandom m => GameState -> [Action] -> m (GameState, [Action])
@@ -684,11 +691,12 @@ drawHoldings gs =
 --   PS.renderDias (PS.PostscriptOptions "pcmap.eps" (D.mkWidth (8.5 * 72)) PS.EPS) [theMap]
 
 type PCDiag = Diagram SVG.B
-drawPCMap = do
-  (state, actions) <- Random.evalRandIO randomGame
-  let diag = (drawHoldings state) <> (drawState state) <> theMap
+
+drawPCMap :: GameState -> IO ()
+drawPCMap gs = do
+  let diag = (drawHoldings gs) <> (drawState gs) <> theMap
   SVG.renderSVG "pcmap.svg" (D.mkSizeSpec2D (Just 400) (Just 400)) diag
-  return actions
+  return ()
 {-
 -}
 
@@ -723,17 +731,17 @@ drawPCMap = do
 
 --- UCT
 
+-- Wins is the perspective of the person choosing the action that serves as the key into this state
+-- i.e. not of the player in the game state cased by executing the move.
 data NodeState = NodeState
   { _visited :: !Int
-  , _wins :: !Int -- I think this needs to be map of all players unlike two player games?
+  , _wins :: !Int
   , _children :: !GameTree
-  }
-
-
+  } deriving (Show)
 
 data GameTree = GameTree
   { _moves :: !(Map Action NodeState)
-  }
+  } deriving (Show)
 
 Lens.makeLenses ''GameTree
 Lens.makeLenses ''NodeState
@@ -741,40 +749,33 @@ Lens.makeLenses ''NodeState
 playout ::
      Random.MonadRandom m
   => Double
-  -> Int
   -> GameState
   -> NodeState
   -> m (Int, NodeState)
-playout explore parentCount gs nstate =
+playout explore gs nstate =
   case Map.null (_moves (_children nstate)) of
     True -> do
       (gs'', actions) <- randomPlayout gs []
+      let winInc =
+            wins %~
+            (case (winner gs'') == (_activePlayer gs) of
+               True -> (+ 1)
+               False -> id)
       return
         (case actions of
-           [] ->
-             ( (winner gs'')
-             , nstate & visited %~ (+ 1) & wins %~
-               (case (winner gs'') == (_activePlayer gs) of
-                  True -> (+ 1)
-                  False -> id))
+           [] -> ((winner gs''), nstate & visited %~ (+ 1) & winInc)
            (action:as) ->
              let gs' = (execMove action gs)
              in ( (winner gs'')
-                , (nstate & (visited %~ (+ 1)) & wins %~
-                   (case (winner gs'') == (_activePlayer gs) of
-                      True -> (+ 1)
-                      False -> id) &
-                   (children . moves) %~
+                , (nstate & (children . moves) %~
                    (Map.insert
                       action
-                      (NodeState
-                       { _visited = 1
-                       , _wins =
-                           case (winner gs'') == (_activePlayer gs') of
-                             True -> 1
-                             False -> 0
-                       , _children = GameTree {_moves = Map.empty}
-                       })))))
+                      ((NodeState
+                        { _visited = 1
+                        , _wins = 0
+                        , _children = GameTree {_moves = Map.empty}
+                        }) &
+                       winInc)))))
     False -> do
       let moveProbs =
             legalMoves gs & -- we assume this is nonempty, as we've explored a child already.
@@ -784,14 +785,15 @@ playout explore parentCount gs nstate =
                    Nothing ->
                      ( ( act
                        , (NodeState
-                          { _visited = 1
+                          { _visited = 0
                           , _wins = 0
                           , _children = GameTree {_moves = Map.empty}
                           }))
                      , fromIntegral
                          (round
                             (100000 *
-                             (explore * (sqrt (log (fromIntegral parentCount)))))))
+                             (explore *
+                              (sqrt (log (fromIntegral ((_visited nstate) + 2))))))))
                    Just (nstate'@(NodeState visited wins children)) ->
                      ( (act, nstate')
                      , fromIntegral
@@ -799,16 +801,71 @@ playout explore parentCount gs nstate =
                             (100000 *
                              ((fromIntegral wins / fromIntegral visited) +
                               explore *
-                              (sqrt (log (fromIntegral parentCount)) /
+                              (sqrt (log (fromIntegral ((_visited nstate) + 2))) /
                                (fromIntegral visited)))))))
       (action, childState) <- Random.fromList moveProbs
-      (win, childState') <-
-        (playout explore (_visited nstate) (execMove action gs) childState)
+      (win, childState') <- (playout explore (execMove action gs) childState)
       return
         ( win
-        , (nstate & (visited %~ (+ 1)) & wins %~
-           (case win == (_activePlayer gs) of
-              True -> (+ 1)
-              False -> id) &
-           (children . moves) %~
-           (Map.insert action childState')))
+        , (nstate & (children . moves) %~
+           (Map.insert
+              action
+              (childState' & (visited %~ (+ 1)) &
+               (wins %~
+                (case win == (_activePlayer gs) of
+                   True -> (+ 1)
+                   False -> id))))))
+
+bestLine :: NodeState -> [Action]
+bestLine nstate =
+  case Map.null (_moves (_children nstate)) of
+    True -> []
+    False ->
+      let (act, node) =
+            Map.toList (_moves (_children nstate)) &
+            (List.sortOn (\(act, node) -> (_wins node) % (_visited node))) &
+            last
+      in act : (bestLine node)
+
+defaultExploreRate = 1.0
+
+evalMove :: Random.MonadRandom m => Int -> GameState -> NodeState -> m NodeState
+evalMove 0 initState nState = return nState
+evalMove times initState nState = do
+  (win, state') <- (playout defaultExploreRate initState nState)
+  (evalMove (times - 1) initState state')
+
+initNodeState =
+  (NodeState
+   {_visited = 0, _wins = 0, _children = GameTree {_moves = Map.empty}})
+
+randomGameViaUTC :: Random.MonadRandom m => Int -> m [Action]
+randomGameViaUTC times = do
+  initDivvys <- (divvyStartingShares defaultState)
+  let initState =
+        List.foldl' (\gs act -> execMove act gs) defaultState initDivvys
+  let pick gs ns = do
+        nstate' <- (evalMove times gs ns)
+        case bestLine nstate' of
+          [] -> return []
+          (action:_) -> do
+            rst <-
+              (pick
+                 (execMove action gs)
+                 ((_moves (_children nstate')) Map.! action))
+            return (action : rst)
+  line <- (pick initState initNodeState)
+  return (initDivvys ++ line)
+
+-- drawPCMap (fixedPlayout (fst game) (take 70 (snd game)))
+-- drawPCMap (fixedPlayout defaultState game6)
+-- SQ.withConnection "/Users/nathan/src/haskell/deep-games/game-archive.sqlite" (Persist.recordGame (snd game))
+-- game6 <- SQ.withConnection "/Users/nathan/src/haskell/deep-games/game-archive.sqlite" (Persist.loadGame 6)
+
+showMove :: [Action] -> Int -> IO Int
+showMove game n = do
+  let gs = (fixedPlayout defaultState (take n game))
+  putStrLn
+    (show n ++ ": Player " ++ show (_activePlayer gs) ++ " " ++ show (game !! n))
+  drawPCMap (fixedPlayout defaultState (take (n + 1) game))
+  return (n + 1)
