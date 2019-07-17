@@ -414,7 +414,7 @@ randomGame = do
   initDivvys <- (divvyStartingShares defaultState)
   let initState =
         List.foldl' (\gs act -> execMove act gs) defaultState initDivvys
-  (randomPlayout initState initDivvys)
+  (randomPlayout initState (reverse initDivvys))
 
 startHex hex =
   case hex of
