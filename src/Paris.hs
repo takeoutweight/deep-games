@@ -816,16 +816,31 @@ playout explore gs nstate =
                    True -> (+ 1)
                    False -> id))))))
 
+-- A hack to avoid the case where we have a bunch of 1.0 propability moves and
+-- pick one with a lower explore count.  The right math solution would probably
+-- be some approximation of credibility interval and, if we're pessimisitic,
+-- chooseing the best 25% confidence interval estimated win rate.
+bestMoveEpsilon = 1 % 50
+
 bestLine :: NodeState -> [Action]
 bestLine nstate =
   case Map.null (_moves (_children nstate)) of
     True -> []
     False ->
-      let (act, node) =
+      let moves0 =
             Map.toList (_moves (_children nstate)) &
             (List.sortOn (\(act, node) -> (_wins node) % (_visited node))) &
-            last
-      in act : (bestLine node)
+            reverse
+          bestNode = moves0 & last & snd
+          moves1 =
+            moves0 &
+            (filter
+               (\(act, node) ->
+                  ((_wins node) % (_visited node)) >=
+                  (((_wins bestNode) % (_visited bestNode)) - bestMoveEpsilon)))
+          (veryBestAct, veryBestNode) =
+            moves1 & (List.sortOn (\(act, node) -> (_visited node))) & last
+      in veryBestAct : (bestLine veryBestNode)
 
 defaultExploreRate = 1.0
 
