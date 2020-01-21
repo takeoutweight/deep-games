@@ -874,7 +874,7 @@ randomGameViaUTC times = do
 
 -- drawPCMap (fixedPlayout (fst game) (take 70 (snd game)))
 -- drawPCMap (fixedPlayout defaultState game6)
--- SQ.withConnection "/Users/nathan/src/haskell/deep-games/game-archive.sqlite" (Persist.recordGame (snd game))
+-- SQ.withConnection "/Users/nathan/src/haskell/deep-games/game-archive.sqlite" (Persist.recordGame game10)
 -- game6 <- SQ.withConnection "/Users/nathan/src/haskell/deep-games/game-archive.sqlite" (Persist.loadGame 6)
 
 showMove :: [Action] -> Int -> IO Int
