@@ -8,10 +8,12 @@ import qualified Control.Monad.Random as Random
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map(..))
 
-
+-- Note, we don't store the game state. Experiment how storing it affects speed
+-- the children represent the game state reflecting the execution of the action
+-- of the key at which they are stored.
 data NodeState act = NodeState
-  { _visited :: !Int -- number of visits
-  , _wins :: !Double -- sum of victories when exploring this node
+  { _visited :: !Int -- number of visits at this node.
+  , _wins :: !Double -- sum of victories for "me" so far. (i.e. play out children, and sum up how good each playout is for this position).
   , _children :: !(GameTree act)
   } deriving (Show)
 
@@ -25,7 +27,9 @@ Lens.makeLenses ''NodeState
 playout ::
      (Random.MonadRandom m, Ord act)
   => Double
-  -> (gs -> m winVec) -- win rates for the state
+  -> (gs -> m winVec) -- random sample of win rates for all players in the
+                      -- state. (likely just eg "1.0 for a player won on a
+                      -- random playout from here, 0.0 for everyone else")
   -> (gs -> winVec -> Double) -- what is the active player's win rate?
   -> (gs -> [act])
   -> (act -> gs -> gs)
