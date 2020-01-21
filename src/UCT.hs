@@ -13,7 +13,7 @@ import Data.Map.Strict (Map(..))
 -- of the key at which they are stored.
 data NodeState act = NodeState
   { _visited :: !Int -- number of visits at this node.
-  , _wins :: !Double -- sum of victories for "me" so far. (i.e. play out children, and sum up how good each playout is for this position).
+  , _wins :: !Double -- sum of victories for "me" so far. (i.e. play out possible moves, and sum up how good each playout is for this parent game state).
   , _children :: !(GameTree act)
   } deriving (Show)
 
@@ -44,46 +44,48 @@ playout explore evalNode favourability legalMoves execMove gs nstate =
              case Map.lookup act (_moves (_children nstate)) of
                Nothing ->
                  ( ( act
-                   , (NodeState
-                      { _visited = 0
-                      , _wins = 0
-                      , _children = GameTree {_moves = Map.empty}
-                      }))
+                   , do winVec <- evalNode (execMove act gs)
+                        return
+                          ( winVec
+                          , (NodeState
+                             { _visited = 1
+                             , _wins = (favourability gs winVec)
+                             , _children = GameTree {_moves = Map.empty}
+                             })))
                  , (fromIntegral
                       (round
                          (100000 *
                           (explore *
                            (sqrt (log (fromIntegral ((_visited nstate) + 2)))))))) :: Rational)
-               Just (nstate'@(NodeState visited wins children)) ->
-                 ( (act, nstate')
+               Just (childState@(NodeState v w c)) ->
+                 ( ( act
+                   , do (winVec, childState') <-
+                          (playout
+                             explore
+                             evalNode
+                             favourability
+                             legalMoves
+                             execMove
+                             (execMove act gs)
+                             childState)
+                        return
+                          ( winVec
+                          , childState' & (visited %~ (+ 1)) &
+                            (wins %~ (+ (favourability gs winVec)))))
                  , (fromIntegral
                       (round
                          (100000 *
-                          ((wins / fromIntegral visited) +
+                          ((w / fromIntegral v) +
                            explore *
                            (sqrt (log (fromIntegral ((_visited nstate) + 2))) /
-                            (fromIntegral visited)))))) :: Rational))
+                            (fromIntegral v)))))) :: Rational))
   in case moveProbs of
        [] -> do
          winVec <- evalNode gs
-         return
-           ( winVec
-           , nstate & visited %~ (+ 1) & wins %~ (+ (favourability gs winVec)))
+         return (winVec, nstate)
        _ -> do
-         (action, childState) <- Random.fromList moveProbs
-         (winVec, childState') <-
-           (playout
-              explore
-              evalNode
-              favourability
-              legalMoves
-              execMove
-              (execMove action gs)
-              childState)
+         (action, childAct) <- Random.fromList moveProbs
+         (winVec, childState) <- childAct
          return
            ( winVec
-           , (nstate & (children . moves) %~
-              (Map.insert
-                 action
-                 (childState' & (visited %~ (+ 1)) &
-                  (wins %~ (+ (favourability gs winVec)))))))
+           , (nstate & (children . moves) %~ (Map.insert action childState)))
