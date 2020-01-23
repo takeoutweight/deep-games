@@ -3,6 +3,7 @@ module Bridge where
 
 import qualified Control.Lens as Lens
 import Control.Lens ((%~), (&), (.~), (^.))
+import qualified Control.Monad.Random as Random
 import qualified Data.List as List
 import qualified Data.Set as Set
 import Data.Set (Set(..))
@@ -21,10 +22,8 @@ data Suit
   | Diamonds
   | Hearts
   | Spades
-  deriving (Eq, Ord, Show)
-data Rank =
-  Int
-  deriving (Eq, Ord, Show)
+  deriving (Enum, Bounded, Eq, Ord, Show)
+type Rank = Int
 data Card =
   Card Suit
        Rank
@@ -61,7 +60,7 @@ handLens South = southHand
 handLens East = eastHand
 handLens West = westHand
 
-data Action = PlayCard !Card
+data Action = PlayCard !Card deriving Show
 
 legalMoves :: GameState -> [Action]
 legalMoves gs =
@@ -75,7 +74,7 @@ legalMoves gs =
 
 execMove :: Action -> GameState -> GameState
 execMove (PlayCard card) gs =
-  let gs' = gs & handLens (_toPlay gs) %~ Set.delete card
+  let gs' = gs & handLens (_toPlay gs) %~ Set.delete card & toPlay %~ next
   in case (_played gs) of
        [a@(Card leadSuit _), b, c] ->
          let trick =
@@ -99,3 +98,25 @@ execMove (PlayCard card) gs =
                  West -> eastWestWonTricks
          in gs' & toPlay .~ winner & played .~ [] & winningTeam %~ (+ 1)
        _ -> gs' & played %~ (++ [card])
+
+randomDeal :: Random.MonadRandom m => m GameState
+randomDeal = do
+  deck <-
+    [Card suit rank | suit <- enumFrom Clubs, rank <- [1 .. 13]] &
+    Shuffle.shuffleM
+  let (northH, rst1) = List.splitAt 13 deck
+  let (eastH, rst2) = List.splitAt 13 rst1
+  let (southH, rst3) = List.splitAt 13 rst2
+  let (westH, _) = List.splitAt 13 rst3
+  return
+    GameState
+    { _toPlay = North
+    , _played = []
+    , _northHand = Set.fromList northH
+    , _eastHand = Set.fromList eastH
+    , _southHand = Set.fromList southH
+    , _westHand = Set.fromList westH
+    , _trump = Hearts
+    , _northSouthWonTricks = 0
+    , _eastWestWonTricks = 0
+    }
