@@ -5,6 +5,7 @@ module UCT where
 import Control.Lens ((%~), (&), (.~), (^.))
 import qualified Control.Lens as Lens
 import qualified Control.Monad.Random as Random
+import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map(..))
 
@@ -21,23 +22,31 @@ data GameTree act = GameTree
   { _moves :: !(Map act (NodeState act))
   } deriving (Show)
 
+data SearchLogic m act gs winVec = SearchLogic
+  { _evalNode :: (gs -> m winVec) -- random sample of win rates for all players
+                      -- in the state. (likely just eg "1.0 for a player won on
+                      -- a random playout from here, 0.0 for everyone else")
+  , _favourability :: (gs -> winVec -> Double) -- what is the active player's win rate?
+  , _legalMoves :: (gs -> [act])
+  , _execMove :: (act -> gs -> gs)
+  }
+
 Lens.makeLenses ''GameTree
 Lens.makeLenses ''NodeState
 
 playout ::
      (Random.MonadRandom m, Ord act)
   => Double
-  -> (gs -> m winVec) -- random sample of win rates for all players in the
-                      -- state. (likely just eg "1.0 for a player won on a
-                      -- random playout from here, 0.0 for everyone else")
-  -> (gs -> winVec -> Double) -- what is the active player's win rate?
-  -> (gs -> [act])
-  -> (act -> gs -> gs)
+  -> SearchLogic m act gs winVec
   -> gs
   -> NodeState act
   -> m (winVec, NodeState act)
-playout explore evalNode favourability legalMoves execMove gs nstate =
-  let moveProbs =
+playout explore logic gs nstate =
+  let evalNode = (_evalNode logic)
+      favourability = (_favourability logic)
+      legalMoves = (_legalMoves logic)
+      execMove = (_execMove logic)
+      moveProbs =
         legalMoves gs &
         map
           (\act ->
@@ -60,14 +69,7 @@ playout explore evalNode favourability legalMoves execMove gs nstate =
                Just (childState@(NodeState v w c)) ->
                  ( ( act
                    , do (winVec, childState') <-
-                          (playout
-                             explore
-                             evalNode
-                             favourability
-                             legalMoves
-                             execMove
-                             (execMove act gs)
-                             childState)
+                          (playout explore logic (execMove act gs) childState)
                         return
                           ( winVec
                           , childState' & (visited %~ (+ 1)) &
@@ -89,3 +91,71 @@ playout explore evalNode favourability legalMoves execMove gs nstate =
          return
            ( winVec
            , (nstate & (children . moves) %~ (Map.insert action childState)))
+
+-- A hack to avoid the case where we have a bunch of 1.0 propability moves and
+-- pick one with a lower explore count.  The right math solution would probably
+-- be some approximation of credibility interval and, if we're pessimisitic,
+-- chooseing the best 25% confidence interval estimated win rate.
+bestMoveEpsilon = 1 / 50
+
+-- The best sequence of moves through the given tree
+bestLine :: NodeState act -> [act]
+bestLine nstate =
+  case Map.null (_moves (_children nstate)) of
+    True -> []
+    False ->
+      let moves0 =
+            Map.toList (_moves (_children nstate)) &
+            (List.sortOn
+               (\(act, node) -> (_wins node) / (fromIntegral (_visited node)))) &
+            reverse
+          bestNode = moves0 & last & snd
+          moves1 =
+            moves0 &
+            (filter
+               (\(act, node) ->
+                  ((_wins node) / (fromIntegral (_visited node))) >=
+                  (((_wins bestNode) / (fromIntegral (_visited bestNode))) -
+                   bestMoveEpsilon)))
+          (veryBestAct, veryBestNode) =
+            moves1 & (List.sortOn (\(act, node) -> (_visited node))) & last
+      in veryBestAct : (bestLine veryBestNode)
+
+defaultExploreRate = 1.0
+
+evalMove ::
+     (Random.MonadRandom m, Ord act)
+  => Int
+  -> SearchLogic m act gs winVec
+  -> gs
+  -> NodeState act
+  -> m (NodeState act)
+evalMove 0 logic initState nState = return nState
+evalMove times logic initState nState = do
+  (win, state') <- (playout defaultExploreRate logic initState nState)
+  (evalMove (times - 1) logic initState state')
+
+initNodeState =
+  (NodeState
+   {_visited = 0, _wins = 0, _children = GameTree {_moves = Map.empty}})
+
+randomGameViaUTC ::
+     (Random.MonadRandom m, Ord act)
+  => Int
+  -> SearchLogic m act gs winVec
+  -> gs
+  -> m [act]
+randomGameViaUTC times logic initGameState = do
+  let execMove = (_execMove logic)
+      pick gs ns = do
+        nstate' <- (evalMove times logic gs ns)
+        case bestLine nstate' of
+          [] -> return []
+          (action:_) -> do
+            rst <-
+              (pick
+                 (execMove action gs)
+                 ((_moves (_children nstate')) Map.! action))
+            return (action : rst)
+  line <- (pick initGameState initNodeState)
+  return line
