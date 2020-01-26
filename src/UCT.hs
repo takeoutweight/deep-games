@@ -23,16 +23,36 @@ data GameTree act = GameTree
   } deriving (Show)
 
 data SearchLogic m act gs winVec = SearchLogic
-  { _evalNode :: (gs -> m winVec) -- random sample of win rates for all players
+  { _evalNode :: !(gs -> m winVec) -- random sample of win rates for all players
                       -- in the state. (likely just eg "1.0 for a player won on
                       -- a random playout from here, 0.0 for everyone else")
-  , _favourability :: (gs -> winVec -> Double) -- what is the active player's win rate?
-  , _legalMoves :: (gs -> [act])
-  , _execMove :: (act -> gs -> gs)
+  , _favourability :: !(gs -> winVec -> Double) -- what is the active player's win rate?
+  , _legalMoves :: !(gs -> [act])
+  , _execMove :: !(act -> gs -> gs)
   }
 
 Lens.makeLenses ''GameTree
 Lens.makeLenses ''NodeState
+
+-- pick uniformly-distributed random moves until no moves are possible
+uniformRandomPlayout ::
+     Random.MonadRandom m
+  => Int
+  -> (gs -> [act])
+  -> (act -> gs -> gs)
+  -> gs
+  -> m gs
+uniformRandomPlayout timeout legalMoves execMove gs =
+  let moves = legalMoves gs
+  in case (null moves) || (timeout <= 0) of
+       True -> return gs
+       False -> do
+         move <- Random.uniform moves
+         uniformRandomPlayout
+           (timeout - 1)
+           legalMoves
+           execMove
+           (execMove move gs)
 
 playout ::
      (Random.MonadRandom m, Ord act)
@@ -123,17 +143,17 @@ bestLine nstate =
 
 defaultExploreRate = 1.0
 
-evalMove ::
+iterateUTC ::
      (Random.MonadRandom m, Ord act)
   => Int
   -> SearchLogic m act gs winVec
   -> gs
   -> NodeState act
   -> m (NodeState act)
-evalMove 0 logic initState nState = return nState
-evalMove times logic initState nState = do
+iterateUTC 0 logic initState nState = return nState
+iterateUTC iterations logic initState nState = do
   (win, state') <- (playout defaultExploreRate logic initState nState)
-  (evalMove (times - 1) logic initState state')
+  (iterateUTC (iterations - 1) logic initState state')
 
 initNodeState =
   (NodeState
@@ -145,10 +165,10 @@ randomGameViaUTC ::
   -> SearchLogic m act gs winVec
   -> gs
   -> m [act]
-randomGameViaUTC times logic initGameState = do
+randomGameViaUTC iterations logic initGameState = do
   let execMove = (_execMove logic)
       pick gs ns = do
-        nstate' <- (evalMove times logic gs ns)
+        nstate' <- (iterateUTC iterations logic gs ns)
         case bestLine nstate' of
           [] -> return []
           (action:_) -> do

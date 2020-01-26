@@ -5,6 +5,7 @@ import qualified Control.Lens as Lens
 import Control.Lens ((%~), (&), (.~), (^.))
 import qualified Control.Monad.Random as Random
 import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import Data.Set (Set(..))
 import qualified System.Random.Shuffle as Shuffle
@@ -23,7 +24,7 @@ data Suit
   | Hearts
   | Spades
   deriving (Enum, Bounded, Eq, Ord, Show)
-type Rank = Int
+type Rank = Int -- Maybe confusing but 1 = 2 .. 12 = K, 13 = A
 data Card =
   Card Suit
        Rank
@@ -60,7 +61,65 @@ handLens South = southHand
 handLens East = eastHand
 handLens West = westHand
 
-data Action = PlayCard !Card deriving Show
+teamTricks North = northSouthWonTricks
+teamTricks South = northSouthWonTricks
+teamTricks East = eastWestWonTricks
+teamTricks West = eastWestWonTricks
+
+suitIcon Clubs = "\9827"
+suitIcon Diamonds = "\9830"
+suitIcon Hearts = "\9829"
+suitIcon Spades = "\9824"
+
+parseSuit '\9827' = Clubs
+parseSuit '\9830' = Diamonds
+parseSuit '\9829' = Hearts
+parseSuit '\9824' = Spades
+
+showRank 13 = "A"
+showRank 12 = "K"
+showRank 11 = "Q"
+showRank 10 = "J"
+showRank 9 = "T"
+showRank x = show (x + 1)
+
+parseRank 'A' = 13
+parseRank 'K' = 12
+parseRank 'Q' = 11
+parseRank 'J' = 10
+parseRank 'T' = 9
+-- parseRank x = undefined
+
+showHand hand =
+  [ hand & Set.toList &
+  Maybe.mapMaybe
+    (\(Card csuit rank) ->
+       case (suit == csuit) of
+         True -> Just rank
+         False -> Nothing) &
+  List.sort &
+  reverse &
+  map showRank &
+  concat &
+  ((suitIcon suit) ++)
+  | suit <- [Clubs ..] & reverse
+  ] &
+  List.intercalate " "
+
+printHands gs =
+  [show hand ++ ": " ++ showHand (gs ^. handLens hand) | hand <- [North ..]] &
+  List.intercalate "\n" &
+  putStrLn
+
+printPlay acts =
+  acts &
+  map (\(PlayCard (Card suit rank)) -> (showRank rank) ++ (suitIcon suit)) &
+  List.intercalate " " &
+  putStrLn
+
+data Action =
+  PlayCard !Card
+  deriving (Show, Eq, Ord)
 
 legalMoves :: GameState -> [Action]
 legalMoves gs =
@@ -88,15 +147,11 @@ execMove (PlayCard card) gs =
              suited =
                trick & filter (\(a@((Card suit _), _)) -> suit == leadSuit)
              (_, winner):_ =
-               (trump & List.sortOn (\(a@((Card suit rank), _)) -> rank)) ++
-               (suited & List.sortOn (\(a@((Card suit rank), _)) -> rank))
-             winningTeam =
-               case winner of
-                 North -> northSouthWonTricks
-                 South -> northSouthWonTricks
-                 East -> eastWestWonTricks
-                 West -> eastWestWonTricks
-         in gs' & toPlay .~ winner & played .~ [] & winningTeam %~ (+ 1)
+               (trump & List.sortOn (\(a@((Card suit rank), _)) -> rank) &
+                reverse) ++
+               (suited & List.sortOn (\(a@((Card suit rank), _)) -> rank) &
+                reverse)
+         in gs' & toPlay .~ winner & played .~ [] & (teamTricks winner) %~ (+ 1)
        _ -> gs' & played %~ (++ [card])
 
 randomDeal :: Random.MonadRandom m => m GameState
@@ -120,3 +175,26 @@ randomDeal = do
     , _northSouthWonTricks = 0
     , _eastWestWonTricks = 0
     }
+
+evalNode :: Random.MonadRandom m => GameState -> m GameState
+evalNode = UCT.uniformRandomPlayout 5000 legalMoves execMove
+
+favourability :: GameState -> GameState -> Double
+favourability gs fs = fs ^. (teamTricks (_toPlay gs)) & fromIntegral
+
+bridgeLogic ::
+     (Random.MonadRandom m) => UCT.SearchLogic m Action GameState GameState
+bridgeLogic =
+  UCT.SearchLogic
+  { UCT._evalNode = evalNode
+  , UCT._favourability = favourability
+  , UCT._legalMoves = legalMoves
+  , UCT._execMove = execMove
+  }
+
+-- Getting an abysmal ~1000k iterations/s
+-- d1 <- randomDeal
+-- ns <- (UCT.iterateUTC 1000 bridgeLogic d1 UCT.initNodeState)
+-- ns <- (UCT.iterateUTC 1000 bridgeLogic (d1 & execMove (PlayCard (Card Clubs 1))) UCT.initNodeState)
+-- printPlay (UCT.bestLine ns)
+-- game <- UCT.randomGameViaUTC 5 bridgeLogic d1
