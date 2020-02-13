@@ -36,6 +36,7 @@ executable deep-games
                      , beam-migrate
                      , bimap
                      , containers
+                     , constraints
                      , colour
                      , diagrams
                      , diagrams-core

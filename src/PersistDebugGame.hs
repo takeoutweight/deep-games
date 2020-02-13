@@ -9,6 +9,11 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances  #-} -- for my hijacked instance for Record
 {-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DerivingStrategies      #-}
+{-# LANGUAGE DerivingVia      #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes #-}
 
 module PersistDebugGame where
 
@@ -21,7 +26,10 @@ import qualified Data.Vinyl as V
 import Data.Vinyl (Rec((:&)))
 import qualified Data.Vinyl.Functor as VF
 import qualified Data.Vinyl.TypeLevel as VT
+import qualified Data.Vinyl.XRec as VX
+import qualified Database.Beam as B
 import GHC.Generics (Generic)
+import Data.Coerce (Coercible(..))
 
 ----------
 
@@ -29,6 +37,10 @@ type Record = Rec DFI.Identity
 getIdentity = DFI.runIdentity
 setIdentity = DFI.Identity
 
+instance VX.IsoHKD DFI.Identity a where
+  type HKD DFI.Identity a = a
+  unHKD = DFI.Identity
+  toHKD (DFI.Identity x) = x
 
 -- I didn't need these extra constraints before, maybe somethign changed in Vinyl in the last X years.
 instance {-# OVERLAPS #-} ( VT.RecAll DFI.Identity rs Show
@@ -90,4 +102,34 @@ instance Wrapped Score
 
 type DebugGameState f = V.Rec f '[ ActivePlayer, Moves, Score]
 
+
+type RandomTupleT f = ( B.C f ActivePlayer, B.C f Moves, B.C f Score)
+
+newtype RandomTuple f =
+  RandomTuple (RandomTupleT f)
+  deriving Generic via (RandomTupleT f)
+  deriving anyclass B.Beamable -- only works because I expanded the tuple.
+
+data ANil = ANil deriving Generic
+
+-- no suprise, works the same :kind! (Rep (Tup Int))
+newtype Tup a = Tup (a, ANil) deriving Generic via (a,ANil)
+
+type TupleWithNilT f = (B.C f Int, ANil)
+
+--  this one leaves ANil opaque as aa Rec0
+newtype TupleWithNil f = TupleWithNil (TupleWithNilT f)
+--  deriving Generic via (TupleWithNilT f)
+
+data RandomRecord f = RandomRecord
+  { _active :: B.C f ActivePlayer
+  , _moves :: B.C f Moves
+  , _score :: B.C f Score
+  } deriving (Generic, B.Beamable)
+
 initDebugGameState = ActivePlayer 0 &: Moves 0 &: Score Map.empty &: Nil
+
+data DebugGameStateDB f = DebugGameStateDB (V.Rec f '[ B.C f ActivePlayer, B.C f Moves, B.C f Score])
+  deriving stock Generic
+--  deriving anyclass B.Beamable -- doesn't work, not sure why?
+
