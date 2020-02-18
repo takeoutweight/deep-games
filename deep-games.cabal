@@ -46,6 +46,7 @@ executable deep-games
                      , diagrams-postscript
 --                     , diagrams-svgdom
                      , exceptions
+                     , generics-sop
                      , ghcjs-dom
                      , hasktorch
                      , HUnit

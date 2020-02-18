@@ -28,7 +28,13 @@ import qualified Data.Vinyl.Functor as VF
 import qualified Data.Vinyl.TypeLevel as VT
 import qualified Data.Vinyl.XRec as VX
 import qualified Database.Beam as B
-import GHC.Generics (Generic)
+import GHC.Generics
+       ((:*:), C1, D1, DecidedStrictness(..), FixityI(..), Generic,
+        Generic1, K1, M1, Meta(..), Rec0, Rep, Rep1, S1,
+        SourceStrictness(..), SourceUnpackedness(..), from1, to1)
+import qualified GHC.Generics as G
+-- import qualified Generics.SOP as GSOP
+-- import qualified Generics.SOP.NP as GNP
 import Data.Coerce (Coercible(..))
 
 ----------
@@ -121,6 +127,8 @@ type TupleWithNilT f = (B.C f Int, ANil)
 newtype TupleWithNil f = TupleWithNil (TupleWithNilT f)
 --  deriving Generic via (TupleWithNilT f)
 
+
+
 data RandomRecord f = RandomRecord
   { _active :: B.C f ActivePlayer
   , _moves :: B.C f Moves
@@ -130,6 +138,34 @@ data RandomRecord f = RandomRecord
 initDebugGameState = ActivePlayer 0 &: Moves 0 &: Score Map.empty &: Nil
 
 data DebugGameStateDB f = DebugGameStateDB (V.Rec f '[ B.C f ActivePlayer, B.C f Moves, B.C f Score])
-  deriving stock Generic
+--  deriving stock Generic -- this works.
 --  deriving anyclass B.Beamable -- doesn't work, not sure why?
+
+
+newtype TaggedRec f = TaggedRec { unTaggedRec :: (V.Rec f '[Int, String])} -- deriving B.Beamable
+
+-- deriving Show via (Rec DFI.Identity '[Int, String])
+
+-- (V.rget @Int (unTaggedRec (TaggedRec ((3 :: Int) &: "hi" &: Nil))))
+
+instance Generic (TaggedRec f) where
+  type Rep (TaggedRec f) =
+    D1 ('MetaData "(,)" "GHC.Tuple" "ghc-prim" 'False)
+       (C1
+          ('MetaCons "(,)" 'PrefixI 'False)
+          ((S1
+             ('MetaSel
+                'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy)
+             (Rec0 (f Int)))
+           :*:
+           (S1
+             ('MetaSel
+               'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy)
+             (Rec0 (f String)))))
+    
+--  from :: a -> GHC.Generics.Rep a x
+  from (TaggedRec r) = G.from ((V.rget @Int r),(V.rget @String r))
+--  to :: GHC.Generics.Rep a x -> a
+--  to _ = undefined
+  to (G.M1 (G.M1 ((G.M1 (G.K1 a)) G.:*: (G.M1 (G.K1 b))))) = (TaggedRec (a :& b :& V.RNil))
 
