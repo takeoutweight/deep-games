@@ -14,9 +14,11 @@
 {-# LANGUAGE DerivingVia      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module PersistDebugGame where
 
+import Control.Lens ((%~), (&), (.~), (^.))
 import Control.Lens.Wrapped (Wrapped(..), op)
 import qualified Data.List as List
 import Data.Map.Strict (Map(..))
@@ -28,6 +30,12 @@ import qualified Data.Vinyl.Functor as VF
 import qualified Data.Vinyl.TypeLevel as VT
 import qualified Data.Vinyl.XRec as VX
 import qualified Database.Beam as B
+import qualified Database.Beam.Migrate as BM
+import qualified Database.Beam.Migrate.Simple as BMS
+import qualified Database.Beam.Migrate.Backend as BMB
+import qualified Database.Beam.Sqlite.Migrate as BSM
+import qualified Database.Beam.Sqlite as DBS
+import qualified Database.SQLite.Simple as SQ
 import GHC.Generics
        ((:*:), C1, D1, DecidedStrictness(..), FixityI(..), Generic,
         Generic1, K1, M1, Meta(..), Rec0, Rep, Rep1, S1,
@@ -130,10 +138,23 @@ newtype TupleWithNil f = TupleWithNil (TupleWithNilT f)
 
 
 data RandomRecord f = RandomRecord
-  { _active :: B.C f ActivePlayer
+  { _id :: B.C f Int
+  , _active :: B.C f ActivePlayer
   , _moves :: B.C f Moves
   , _score :: B.C f Score
   } deriving (Generic, B.Beamable)
+
+instance B.Table RandomRecord where
+  data PrimaryKey RandomRecord f = RandomRecordId (B.C f Int)
+                               deriving (Generic, B.Beamable)
+  primaryKey = RandomRecordId . _id
+
+data RandomDB f = RandomDB
+  { _randomRecord :: f (B.TableEntity RandomRecord)
+  } deriving (Generic, B.Database be)
+
+-- randomDB :: BM.CheckedDatabaseSettings DBS.Sqlite RandomDB
+-- randomDB = BM.defaultMigratableDbSettings
 
 initDebugGameState = ActivePlayer 0 &: Moves 0 &: Score Map.empty &: Nil
 
@@ -142,7 +163,11 @@ data DebugGameStateDB f = DebugGameStateDB (V.Rec f '[ B.C f ActivePlayer, B.C f
 --  deriving anyclass B.Beamable -- doesn't work, not sure why?
 
 
-newtype TaggedRec f = TaggedRec { unTaggedRec :: (V.Rec f '[Int, String])} -- deriving B.Beamable
+newtype TaggedRec f = TaggedRec { unTaggedRec :: (V.Rec f '[Int, String])}
+
+-- newtype TaggedRecC f = TaggedRecC (TaggedRec (B.C f)) -- can't paritally apply B.C
+
+-- instance B.Beamable (TaggedRec (B.C f))
 
 -- deriving Show via (Rec DFI.Identity '[Int, String])
 
@@ -169,3 +194,40 @@ instance Generic (TaggedRec f) where
 --  to _ = undefined
   to (G.M1 (G.M1 ((G.M1 (G.K1 a)) G.:*: (G.M1 (G.K1 b))))) = (TaggedRec (a :& b :& V.RNil))
 
+
+-- Basically pretty hard to work w/ newtypes in Beam
+data SimpleRecord f = SimpleRecord
+  { _sid :: B.C f Int
+  , _sactive :: B.C f Int
+  , _smoves :: B.C f Int
+  , _sscore :: B.C f Int
+  } deriving (Generic, B.Beamable)
+
+instance B.Table SimpleRecord where
+  data PrimaryKey SimpleRecord f = SimpleRecordId (B.C f Int)
+                               deriving (Generic, B.Beamable)
+  primaryKey = SimpleRecordId . _sid
+
+data SimpleDB f = SimpleDB
+  { _simpleRecord :: f (B.TableEntity SimpleRecord)
+  } deriving (Generic, B.Database be)
+
+simpleDB :: BM.CheckedDatabaseSettings DBS.Sqlite SimpleDB
+simpleDB = BM.defaultMigratableDbSettings
+
+{-
+-- This doesn't work
+data EmptyDB (f :: * -> *) = EmptyDB
+  {
+  } deriving (Generic, B.Database be)
+
+emptyDB :: BM.CheckedDatabaseSettings DBS.Sqlite EmptyDB
+emptyDB = BM.defaultMigratableDbSettings
+-}
+createDB filename = SQ.withConnection filename (\conn -> (SQ.execute_ conn "VACUUM;"))
+
+-- actual <- SQ.withConnection "test2.db" (\conn -> DBS.runBeamSqlite conn BSM.getDbConstraints)
+-- let soln = ((BM.heuristicSolver BM.defaultActionProvider actual (BM.collectChecks simpleDB)) :: BM.Solver DBS.Sqlite) & BM.finalSolution
+-- (case soln of BM.Solved mcs -> map BM.migrationCommand mcs) & map (BMB.backendRenderSyntax BSM.migrationBackend) & traverse putStrLn
+-- SQ.withConnection "test2.db" (\conn -> DBS.runBeamSqlite conn (BMS.autoMigrate BSM.migrationBackend simpleDB))
+-- SQ.withConnection "test2.db" (\conn -> DBS.runBeamSqlite conn (BMS.createSchema BSM.migrationBackend simpleDB))
