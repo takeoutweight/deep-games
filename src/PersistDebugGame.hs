@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances  #-} -- for my hijacked instance for Record
 {-# LANGUAGE TypeApplications      #-}
@@ -15,11 +16,13 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module PersistDebugGame where
 
-import Control.Lens ((%~), (&), (.~), (^.))
+import Control.Lens ((%~), (&), (.~), (^.), non)
 import Control.Lens.Wrapped (Wrapped(..), op)
+import qualified Control.Lens as L
 import qualified Data.List as List
 import Data.Map.Strict (Map(..))
 import qualified Data.Map.Strict as Map
@@ -30,6 +33,7 @@ import qualified Data.Vinyl.Functor as VF
 import qualified Data.Vinyl.TypeLevel as VT
 import qualified Data.Vinyl.XRec as VX
 import qualified Database.Beam as B
+import Database.Beam (PrimaryKey, primaryKey)
 import qualified Database.Beam.Migrate as BM
 import qualified Database.Beam.Migrate.Simple as BMS
 import qualified Database.Beam.Migrate.Backend as BMB
@@ -44,6 +48,8 @@ import qualified GHC.Generics as G
 -- import qualified Generics.SOP as GSOP
 -- import qualified Generics.SOP.NP as GNP
 import Data.Coerce (Coercible(..))
+
+import qualified DebugGame as DG
 
 ----------
 
@@ -187,13 +193,21 @@ instance Generic (TaggedRec f) where
              ('MetaSel
                'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy)
              (Rec0 (f String)))))
-    
+
 --  from :: a -> GHC.Generics.Rep a x
   from (TaggedRec r) = G.from ((V.rget @Int r),(V.rget @String r))
 --  to :: GHC.Generics.Rep a x -> a
 --  to _ = undefined
   to (G.M1 (G.M1 ((G.M1 (G.K1 a)) G.:*: (G.M1 (G.K1 b))))) = (TaggedRec (a :& b :& V.RNil))
 
+
+data SomeSum
+  = SumA Int
+  | SumB String
+         String
+  deriving (Generic, Show)
+
+L.makePrisms ''SomeSum
 
 -- Basically pretty hard to work w/ newtypes in Beam
 data SimpleRecord f = SimpleRecord
@@ -224,10 +238,48 @@ data EmptyDB (f :: * -> *) = EmptyDB
 emptyDB :: BM.CheckedDatabaseSettings DBS.Sqlite EmptyDB
 emptyDB = BM.defaultMigratableDbSettings
 -}
-createDB filename = SQ.withConnection filename (\conn -> (SQ.execute_ conn "VACUUM;"))
+createSimpleDB filename = SQ.withConnection filename (\conn -> (SQ.execute_ conn "VACUUM;"))
 
 -- actual <- SQ.withConnection "test2.db" (\conn -> DBS.runBeamSqlite conn BSM.getDbConstraints)
--- let soln = ((BM.heuristicSolver BM.defaultActionProvider actual (BM.collectChecks simpleDB)) :: BM.Solver DBS.Sqlite) & BM.finalSolution
+-- let soln = ((BM.heuristicSolver BM.defaultActionProvider actual (BM.collectChecks debugDB)) :: BM.Solver DBS.Sqlite) & BM.finalSolution
 -- (case soln of BM.Solved mcs -> map BM.migrationCommand mcs) & map (BMB.backendRenderSyntax BSM.migrationBackend) & traverse putStrLn
--- SQ.withConnection "test2.db" (\conn -> DBS.runBeamSqlite conn (BMS.autoMigrate BSM.migrationBackend simpleDB))
--- SQ.withConnection "test2.db" (\conn -> DBS.runBeamSqlite conn (BMS.createSchema BSM.migrationBackend simpleDB))
+-- SQ.withConnection "test2.db" (\conn -> DBS.runBeamSqlite conn (BMS.autoMigrate BSM.migrationBackend debugDB))
+-- SQ.withConnection "test2.db" (\conn -> DBS.runBeamSqlite conn (BMS.createSchema BSM.migrationBackend debugDB))
+
+---------- The Actual DebugGame Schema ----------
+
+data GameT f = Game
+  { _gameId :: B.C f Int
+  } deriving (Generic, B.Beamable)
+
+instance B.Table GameT where
+  data PrimaryKey GameT f = GameId (B.C f Int) deriving (Generic, B.Beamable)
+  primaryKey = GameId . _gameId
+
+
+data ActionT f = Action
+  { _actionId :: B.C f Int
+  , _game :: PrimaryKey GameT f
+  } deriving (Generic, B.Beamable)
+
+instance B.Table ActionT where
+  data PrimaryKey ActionT f = ActionId (B.C f Int) deriving (Generic, B.Beamable)
+  primaryKey = ActionId . _actionId
+
+data DebugDB f = DebugDB
+  { _debugGames :: f (B.TableEntity GameT)
+  , _debugActions :: f (B.TableEntity ActionT)
+  } deriving (Generic, B.Database be)
+
+debugDB :: BM.CheckedDatabaseSettings DBS.Sqlite DebugDB
+debugDB = BM.defaultMigratableDbSettings
+
+-- | returns id of the added game
+-- recordGame :: [Action] -> SQ.Connection -> IO Int
+recordGame conn =
+  B.all_ (_debugGames (BM.unCheckDatabase debugDB)) &
+  B.aggregate_ (\g -> B.fromMaybe_ 0 (B.max_ (_gameId g))) &
+  B.select &
+  B.runSelectReturningOne &
+  (fmap (L.view (non 0))) &
+  DBS.runBeamSqlite conn

@@ -23,6 +23,7 @@ executable deep-games
                      , PersistDebugGame
                      , Paris
                      , Persist
+                     , PersistParis
                      , UCT
   -- other-extensions:
   hs-source-dirs:      src
