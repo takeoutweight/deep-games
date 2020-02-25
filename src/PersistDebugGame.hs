@@ -22,11 +22,14 @@ module PersistDebugGame where
 
 import Control.Lens ((%~), (&), (.~), (^.), non)
 import Control.Lens.Wrapped (Wrapped(..), op)
+import qualified Control.Monad.Catch as Catch
+import qualified Control.Monad.IO.Class as CM
 import qualified Control.Lens as L
 import qualified Data.List as List
 import Data.Map.Strict (Map(..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Functor.Identity as DFI
+import Data.String (fromString)
 import qualified Data.Vinyl as V
 import Data.Vinyl (Rec((:&)))
 import qualified Data.Vinyl.Functor as VF
@@ -48,6 +51,7 @@ import qualified GHC.Generics as G
 -- import qualified Generics.SOP as GSOP
 -- import qualified Generics.SOP.NP as GNP
 import Data.Coerce (Coercible(..))
+import qualified System.Random as Random
 
 import qualified DebugGame as DG
 
@@ -256,6 +260,11 @@ instance B.Table GameT where
   data PrimaryKey GameT f = GameId (B.C f Int) deriving (Generic, B.Beamable)
   primaryKey = GameId . _gameId
 
+type Game = GameT B.Identity
+deriving instance Show Game
+deriving instance Eq Game
+deriving instance Ord Game
+
 
 data ActionT f = Action
   { _actionId :: B.C f Int
@@ -274,12 +283,44 @@ data DebugDB f = DebugDB
 debugDB :: BM.CheckedDatabaseSettings DBS.Sqlite DebugDB
 debugDB = BM.defaultMigratableDbSettings
 
+withSavepoint :: (CM.MonadIO io, Catch.MonadMask io) => SQ.Connection -> io a -> io a
+withSavepoint conn action =
+  Catch.mask $ \restore -> do
+    idInt <- CM.liftIO Random.randomIO
+    let savepoint =
+          ("Backup_withSavepoint2" <>
+           fromString (show (mod idInt (1000000000 :: Int))))
+    CM.liftIO (SQ.execute_ conn ("SAVEPOINT " <> savepoint))
+    r <-
+      (restore action) `Catch.onException`
+      (CM.liftIO
+         (do (SQ.execute_ conn ("ROLLBACK TO " <> savepoint))
+             (SQ.execute_ conn ("RELEASE " <> savepoint))))
+    CM.liftIO (SQ.execute_ conn ("RELEASE " <> savepoint))
+    return r
+
 -- | returns id of the added game
 -- recordGame :: [Action] -> SQ.Connection -> IO Int
-recordGame conn =
+nextId =
   B.all_ (_debugGames (BM.unCheckDatabase debugDB)) &
-  B.aggregate_ (\g -> B.fromMaybe_ 0 (B.max_ (_gameId g))) &
-  B.select &
-  B.runSelectReturningOne &
-  (fmap (L.view (non 0))) &
-  DBS.runBeamSqlite conn
+  B.aggregate_ (\g -> B.fromMaybe_ (-1) (B.max_ (_gameId g)))
+  & fmap (+1)
+
+--  B.select &
+--  B.runSelectReturningOne &
+--  (fmap (L.view (non (-1)))) &
+--  
+--  DBS.runBeamSqlite conn &
+--  withSavepoint conn
+
+-- insertGame :: SQ.Connection -> IO ()
+insertGame :: SQ.Connection -> IO Game
+insertGame conn =
+  (do next <- nextId
+      pure (Game {_gameId = next})) &
+  B.insertFrom &
+  B.insert (_debugGames (BM.unCheckDatabase debugDB)) &
+  DBS.runInsertReturningList &
+  fmap head &
+  DBS.runBeamSqlite conn &
+  withSavepoint conn

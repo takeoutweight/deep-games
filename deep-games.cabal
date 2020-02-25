@@ -54,6 +54,7 @@ executable deep-games
                      , jsaddle-wkwebview
                      , jsaddle-warp
                      , lens
+                     , random
                      , MonadRandom
                      , multiset
                      , mtl
