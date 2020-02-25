@@ -36,6 +36,7 @@ import qualified Data.Vinyl.Functor as VF
 import qualified Data.Vinyl.TypeLevel as VT
 import qualified Data.Vinyl.XRec as VX
 import qualified Database.Beam as B
+import qualified Database.Beam.Backend.SQL.BeamExtensions as BExt
 import Database.Beam (PrimaryKey, primaryKey)
 import qualified Database.Beam.Migrate as BM
 import qualified Database.Beam.Migrate.Simple as BMS
@@ -267,13 +268,17 @@ deriving instance Ord Game
 
 
 data ActionT f = Action
-  { _actionId :: B.C f Int
-  , _game :: PrimaryKey GameT f
+  { _game :: PrimaryKey GameT f
+  , _moveNum  :: B.C f Int
+  , _action :: B.C f Int
   } deriving (Generic, B.Beamable)
 
+type Action = ActionT B.Identity
+
 instance B.Table ActionT where
-  data PrimaryKey ActionT f = ActionId (B.C f Int) deriving (Generic, B.Beamable)
-  primaryKey = ActionId . _actionId
+  data PrimaryKey ActionT f = ActionNoId
+                       deriving (Generic, B.Beamable)
+  primaryKey _ = ActionNoId
 
 data DebugDB f = DebugDB
   { _debugGames :: f (B.TableEntity GameT)
@@ -320,7 +325,21 @@ insertGame conn =
       pure (Game {_gameId = next})) &
   B.insertFrom &
   B.insert (_debugGames (BM.unCheckDatabase debugDB)) &
-  DBS.runInsertReturningList &
+  BExt.runInsertReturningList &
   fmap head &
   DBS.runBeamSqlite conn &
   withSavepoint conn
+
+recordGame :: [Int] -> SQ.Connection -> IO Game
+recordGame actions conn = do
+  game <- insertGame conn
+  (zip actions [0 ..]) &
+    map
+      (\(action, idx) ->
+         Action {_game = primaryKey game, _moveNum = idx, _action = action}) &
+    B.insertValues &
+    B.insert (_debugActions (BM.unCheckDatabase debugDB)) &
+    B.runInsert &
+    DBS.runBeamSqlite conn &
+    withSavepoint conn
+  return game
