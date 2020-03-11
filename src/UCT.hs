@@ -118,7 +118,12 @@ playout explore logic gs nstate =
 -- chooseing the best 25% confidence interval estimated win rate.
 bestMoveEpsilon = 1 / 50
 
--- The best sequence of moves through the given tree
+winRate :: NodeState act -> Double
+winRate node = (_wins node) / (fromIntegral (_visited node))
+
+-- The best sequence of moves through the given tree. Choose all winrates w/in
+-- bestMoveEpsilon and pick the most visted. (probably a more principled way to do
+-- this)
 bestLine :: NodeState act -> [act]
 bestLine nstate =
   case Map.null (_moves (_children nstate)) of
@@ -126,17 +131,14 @@ bestLine nstate =
     False ->
       let moves0 =
             Map.toList (_moves (_children nstate)) &
-            (List.sortOn
-               (\(act, node) -> (_wins node) / (fromIntegral (_visited node)))) &
+            (List.sortOn (\(act, node) -> winRate node)) &
             reverse
           bestNode = moves0 & last & snd
           moves1 =
             moves0 &
             (filter
                (\(act, node) ->
-                  ((_wins node) / (fromIntegral (_visited node))) >=
-                  (((_wins bestNode) / (fromIntegral (_visited bestNode))) -
-                   bestMoveEpsilon)))
+                  (winRate node) >= ((winRate bestNode) - bestMoveEpsilon)))
           (veryBestAct, veryBestNode) =
             moves1 & (List.sortOn (\(act, node) -> (_visited node))) & last
       in veryBestAct : (bestLine veryBestNode)
@@ -159,12 +161,18 @@ initNodeState =
   (NodeState
    {_visited = 0, _wins = 0, _children = GameTree {_moves = Map.empty}})
 
+-- | Make the game tree only one level deep.
+trimGameTree :: GameTree act -> GameTree act
+trimGameTree gt =
+  gt & moves %~ Map.map (\ns -> ns & children .~ GameTree {_moves = Map.empty})
+
+-- | Returns action (trimmed) gametree pairs, for win,visit counts at each step.
 randomGameViaUTC ::
      (Random.MonadRandom m, Ord act)
   => Int
   -> SearchLogic m act gs winVec
   -> gs
-  -> m [act]
+  -> m [(act, GameTree act)]
 randomGameViaUTC iterations logic initGameState = do
   let execMove = (_execMove logic)
       pick gs ns = do
@@ -176,6 +184,6 @@ randomGameViaUTC iterations logic initGameState = do
               (pick
                  (execMove action gs)
                  ((_moves (_children nstate')) Map.! action))
-            return (action : rst)
+            return ((action, trimGameTree (_children nstate')) : rst)
   line <- (pick initGameState initNodeState)
   return line

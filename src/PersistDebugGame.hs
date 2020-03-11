@@ -20,7 +20,7 @@
 
 module PersistDebugGame where
 
-import Control.Lens ((%~), (&), (.~), (^.), non)
+import Control.Lens ((%~), (&), (.~), (^.), at, non)
 import Control.Lens.Wrapped (Wrapped(..), op)
 import qualified Control.Monad.Catch as Catch
 import qualified Control.Monad.IO.Class as CM
@@ -55,6 +55,7 @@ import Data.Coerce (Coercible(..))
 import qualified System.Random as Random
 
 import qualified DebugGame as DG
+import qualified UCT as UCT
 
 ----------
 
@@ -271,7 +272,24 @@ data ActionT f = Action
   { _game :: PrimaryKey GameT f
   , _moveNum  :: B.C f Int
   , _action :: B.C f Int
+  , _r0 :: B.C f Double
+  , _r1 :: B.C f Double
+  , _r2 :: B.C f Double
+  , _r3 :: B.C f Double
+  , _r4 :: B.C f Double
+  , _r5 :: B.C f Double
+  , _r6 :: B.C f Double
+  , _r7 :: B.C f Double
+  , _r8 :: B.C f Double
+  , _r9 :: B.C f Double
   } deriving (Generic, B.Beamable)
+
+-- Not a SQLite thing
+-- "ALTER TABLE actions ADD CHECK (UNIQUE (game_id, num) ON CONFLICT REPLACE)"
+-- These apparently violate uniqueness in a way I don't understand?
+-- "CREATE UNIQUE INDEX action_index on actions (actions.game_id, actions.num);"
+-- CREATE UNIQUE INDEX "action_index" on "actions" ("game_id", "num");
+-- CREATE UNIQUE INDEX "action_index" on "actions" ("actions.game_id", "actions.num");
 
 type Action = ActionT B.Identity
 
@@ -330,16 +348,38 @@ insertGame conn =
   DBS.runBeamSqlite conn &
   withSavepoint conn
 
-recordGame :: [Int] -> SQ.Connection -> IO Game
+-- FIXME the numbers don't seem to line up. maybe my trim tree is off-by-one layer or something.
+recordGame :: [(Int, UCT.GameTree Int)] -> SQ.Connection -> IO Game
 recordGame actions conn = do
   game <- insertGame conn
   (zip actions [0 ..]) &
     map
-      (\(action, idx) ->
-         Action {_game = primaryKey game, _moveNum = idx, _action = action}) &
+      (\((action, gt), idx) ->
+         let winRate move =
+               case Map.lookup move (UCT._moves gt) of
+                 Nothing -> 0.0
+                 Just ns -> UCT.winRate ns
+         in Action
+            { _game = primaryKey game
+            , _moveNum = idx
+            , _action = action
+            , _r0 = winRate 0
+            , _r1 = winRate 1
+            , _r2 = winRate 2
+            , _r3 = winRate 3
+            , _r4 = winRate 4
+            , _r5 = winRate 5
+            , _r6 = winRate 6
+            , _r7 = winRate 7
+            , _r8 = winRate 8
+            , _r9 = winRate 9
+            }) &
     B.insertValues &
     B.insert (_debugActions (BM.unCheckDatabase debugDB)) &
     B.runInsert &
-    DBS.runBeamSqlite conn &
+    DBS.runBeamSqliteDebug putStrLn conn &
     withSavepoint conn
   return game
+
+-- rg <- UCT.randomGameViaUTC 10 DG.debugGameLogic DG.initGS
+-- SQ.withConnection "test2.db" (\conn -> recordGame rg conn)
