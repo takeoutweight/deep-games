@@ -1,0 +1,984 @@
+* Paris connection AI
+** Q: What NN lib?
+*** No GPU tensorflow via VMs
+**** https://www.reddit.com/r/MachineLearning/comments/75mg4q/d_is_it_still_impossible_to_have_a_linux_vm_for/
+**** Just use a real linux host.
+*** unofficial tensorflow libs
+**** https://github.com/tensorflow/haskell
+**** Example clearly shows training and evaulating model in same code https://github.com/tensorflow/haskell/blob/master/tensorflow-mnist/app/Main.hs
+**** Might have to use docker images for GPU stuff
+*** https://github.com/ajtulloch/dnngraph can output Nvidia Caffe, might work well with the desktop?
+*** Q: Can you run models learned by caffe in native haskell w/o GPU etc?
+*** hasktorch http://hackage.haskell.org/package/hasktorch
+**** dev info https://github.com/hasktorch/hasktorch/blob/master/DEVELOPERS.md
+**** Maybe relevant intro blog? https://medium.com/@stites/hasktorch-v0-0-1-28d9ab270f3f
+**** Uses backpack, so would have to switch to cabal
+**** somehow related to backprop for gradient finding, which is AD-esque
+***** https://blog.jle.im/entry/introducing-the-backprop-library.html
+***** But afaict it seems CPU-based? but I thought hasktorch was GPU-friendly?
+**** Some relevant reddit discussion on philosophy https://www.reddit.com/r/haskell/comments/8yz92h/a_year_into_backpack_inside_2455d/
+**** More reddit https://www.reddit.com/r/haskell/comments/9ufwqv/ann_hasktorch_v001/
+***** Maybe sacrificing a pure interface, so staying a bit everything-in-IO ish
+**** presented at ICFP 2018 
+***** https://icfp18.sigplan.org/event/npfl-2018-papers-hasktorch-a-comprehensive-haskell-library-for-differentiable-functional-programming
+***** https://www.youtube.com/watch?v=SjxP1NpoP2c
+***** Uses backprop (on gpu though?)
+**** Q: How do you do a standard deep neural net on the GPU with it?
+***** vs pytorch's 60 minute to deep learning 
+****** https://github.com/soumith/cvpr2015/blob/master/Deep%20Learning%20with%20Torch.ipynb
+****** Seems like here there is just a ".cuda" method to convert it to GPU-calculated.
+***** Here seems to be a LeNet, not sure if it works or not https://github.com/hasktorch/hasktorch/blob/master/zoo/src/Torch/Models/Vision/LeNet.hs
+*** What kind of network?
+**** Feel like a simple one convolution layer with a couple fully connected layers could do pretty great?
+**** Maybe with some board history too, for possible theory-of-mind.
+** Adventure w diagrams-svgdom to get diagrams-as-a-ui
+*** svg-builder-0.1.2 isn't a thing?
+*** Ah, it's the hashable-attributes branch of https://github.com/zopa/svg-builder
+*** Not sure running via ghci is possible? https://github.com/reflex-frp/reflex-platform/issues/445
+**** Can't seem to open a window from ghci. running the executable from shell works.
+*** built-in svg viewer builds a <g><path/></g> for each shape, it seems
+**** type AttributeValue = T.Text
+** Q: Generic way to compile the actions-as-data away?
+*** Either write the data so it fuses away or just hard-code a "chose a random play" w/o going via data reprs?
+** Q: implement game plays on a GPU?
+*** Adjacency is sort of convolution, each cell is adjacent to up to 6 others, so that could be hard coded into a gpu-friendly shape.
+*** Tricky thing might be the "Don't block a new rail off completely" rule.
+**** Might be able to simplify it to hard-code  specific paths for each rail and get 99% of the practically-ocurring cases.
+** Theory of mind?
+*** Explicitly have a memory?
+*** Explicitly try to learn a specific model for "guessing their hidden pieces, given their moves" that is trained separately, and fed as input into the game playing model?
+*** Vs just N-back moves like alpha-go?
+*** I.e. we have different choices if we want to reason under uncertainty. We can just reason over arbitrary consistent assignments of hidden information. Try to work with a Nth-percentile worst-case. OR try to fit data that maximizes that player's objective function (they wouldn't have played X if they had Y, so it's more likely they have Z") though bluffing then becomes an issue if they know that we know etc.
+*** Consider Monte Carlo Tree Search for games with Hidden Information and Uncertainty 2014
+** Q: What ranking system for player strength? Glicko?
+*** I.e. we only want to learn from the strongest games.
+*** With games with higher chance, does ELO suffer? And with >2 player games?
+*** cf glicko ratings, (used on OGS, counterstrike etc) which take into account uncertainty about skill. Which makes sense.
+*** trueskill, a variant of glicko to handle team-vs-team w/ individual performance (patented?) https://trueskill.org/
+**** http://www.moserware.com/assets/computing-your-skill/The%20Math%20Behind%20TrueSkill.pdf
+** Q: Automatically learn commutativity or other factorizations?
+*** I'm sure I've written about this elsewhere, but some sequencs are entirely commutative (i.e. what order you lay certain tracks in PC) and surely some are "mostly commutative" in that a "close" move will have a "close" outcome. This should be leveraged to improve the efficacy of UCT search.
+*** NN would learn this commutativity on evaluation, but I want UCT to /leverage/ it. I.e. consder all "nearby" moves explored to some degree, where the notion of nearby-ness can be either w.r.t. win rate or more granular, i.e. develops similar game state evolution.
+*** Maybe would be less useful when you use shallow UCT and really good heuristics, but during learning phases, widening exploration smartly seems every bit as useful as exploiting a fairly OK line.
+*** Would then seem to make a natural extrapolation to non-discrete move spaces. I.e. (some) eg close bids would be near others (not all! As there are discontinuities to be found).
+*** I /think/ it's just learning "are the win rates on these board states highly correlated". Perfect correlation means the moves are equivalent, random corrleation means the moves are unrealted, and need to be considered in isolation.
+*** Could almost do conflict-directed learning in starting games /in/ suspected highly correlated states and exploring them to see which are actually correlated. (i.e. it might not be causal correlation)
+*** Ah, but if it's not causual correlation you'd need to do counter-factual conflict-directed learning. I.e. can we find a ... what. If it's a different "path that leads us here" that's presuming the game state is different in non-essential ways but knowing what's non-essential is begging the question of the metric we're trying to learn.
+*** Maybe the idea still works: find games that are measured as correlated, then counter-factually explode them at various places (Since downstream moves are highly correlated to upstream moves, generating /more/ of those might lead to better pin-pointing of the actual moves that are correlated).
+*** It has to have some generalization pressure though, otherwise you're just learning "In this specific game state, these moves are good moves" which is the original learning task. This is more "This move looks like it will have the same outcome as that move, regardless of whether it's good or not."
+** Programming tasks
+*** DONE Enumerate legal moves from current board position
+legalMoves (defaultState & execTrade2 (Trade2 Yellow Blue) & rotatePlayer & rotatePlayer)
+*** DONE Randomly initialize player holdings
+*** DONE Strictify records probably
+*** FIXED still off-by-a-bit with train count somewhere, counted 34 in total (should be 32 including start cube)
+**** It's definitely in building, trading seems to preserve material afaict.
+**** But it doesnt' seem obvious why this would break!! IDK! Seems simple enough. 
+**** Ah, I was counting the stock PRICE as well. Just error on my spot-check skills. 
+*** DONE Represent initial divy as data so we have a nice replay mechanism
+**** Possibly with easy way to mask out stuff given to other players to see log mid-game.
+**** Q: Just takePrivateShare as an explicit move?
+*** TODO Disallow building off board, over rivers, two in same town
+*** TODO Disallow blocking a company off entirely from any city
+**** Could restrict search to 0-scoring companies at least
+**** Probably just have to do BFS - not sure there is any other approach that would be much faster. Maaybe storing a valid path to a city, and only re-scan if someone moves on top of that?
+**** Could also like have a "but only really legal moves" option where the AI doesn't closely check the move unless it would actually play it. But idk for random play-outs you'd always be "really playing" it so maybe not much of a savings there.
+**** but I bet just searching for it every time would almost always be as fast. If they got long they'd have to necessarily be windey and restricted and be fast to find again.
+*** Minor Cleanups
+**** Q: Make holdings a Functor/Traversible, get foldl, + etc for free.
+**** TODO probably should just have a single trade action with a number or One Two argument. No reason to split the record.
+*** Q: Can we make an "active player's holdings" lens? I should think so?
+**** What about abstracting over public/private? Can I bake that logic into the lens? feel like I could?
+**** i.e. fiddle with public counts first, subtract private only if you are out of publics.
+*** TODO Get things compiling and convenient
+**** DONE Installing ghcup
+***** Needs
+curl g++ gcc gmp make ncurses python3 realpath xz-utils
+***** Had all except realpath xz-utils
+***** no macport for xz-utils, but maybe is just the xz port, which I have.
+***** Advice from shell:
+You may want to run the following to get the really latest version:
+    cabal new-install cabal-install
+
+And make sure that "~/.cabal/bin" comes *before* "/Users/nathan/.ghcup/bin"
+
+Don't forget to source /Users/nathan/.ghcup/env in your ~/.bashrc or similar.
+***** Q: Trying: cabal new-install cabal-install
+****** received this message
+cabal: symlink-bindir is not defined. Set it in your cabal config file or use
+--symlink-bindir=<path>
+**** DONE Installing hasktorch
+***** chose ghc 8.4.4
+ghcup set 8.4.4
+***** gcc-7 not installed?
+port install gcc_select
+****** but doesn't seem to help:
+Available versions for gcc:
+	none (active)
+****** This seems to be a homebrew thing
+****** There are prebuilt ones here http://hpc.sourceforge.net/ tempted to just get those?
+****** But not sure how i'd safely install that, temporarily.
+****** Sounds like homebrew can be given an alternate directory, so that might be one way. Not sure how to get the build environment set up to use that though 
+https://github.com/Homebrew/brew/blob/664d0c67d5947605c914c4c56ebcfaa80cb6eca0/docs/Installation.md#untar-anywhere
+****** Can I do it myself? (no, has to be in /usr/local -- and who knows what damage it will do there)
+******* some wrapper hints https://unix.stackexchange.com/questions/258263/bash-command-to-print-gcc-environment-variables
+******* Probably same effort as just configuring PATH Etc.
+COMPILER_PATH="/Users/nathan/Downloads/usr/local/libexec/gcc/x86_64-apple-darwin17.5.0/8.1.0"
+LD_LIBRARY_PATH="/Users/nathan/Downloads/usr/local/lib"
+LIBRARY_PATH="/Users/nathan/Downloads/usr/local/lib:/Users/nathan/Downloads/usr/local/lib/gcc/x86_64-apple-darwin17.5.0/8.1.0"
+CPATH="/Users/nathan/Downloads/usr/local/include:/Users/nathan/Downloads/usr/local/include/c++:/Users/nathan/Downloads/usr/local/include/c++/8.1.0"
+PATH="/Users/nathan/Downloads/usr/local/bin:$PATH"
+****** FIXME no nproc
+./build-aten.sh: line 74: nproc: command not found
+****** FIXME gcc doesn't work
+  dyld: Library not loaded: /usr/local/lib/libmpc.3.dylib
+
+    Referenced from: /Users/nathan/Downloads/usr/local/bin/../libexec/gcc/x86_64-apple-darwin17.5.0/8.1.0/cc1
+    Reason: image not found
+******* This seems hard-coded so have to rebuild gcc myself. oh well.
+****** FIXME
+CMake Error at CMakeLists.txt:9 (project):
+  The CMAKE_CXX_COMPILER:
+
+    g++-8
+
+  is not a full path and was not found in the PATH.
+****** Trying a non- /usr/lib homebrew installation
+***** I think I could just try ATen via my own compiler next, if this doesn't work? does it HAVE to be gcc?
+trying:
+cmake ../../ATen/ -DCMAKE_INSTALL_PREFIX=/Users/nathan/src/c/aten-build/install -DNO_CUDA=true
+***** that didn't work. trying to build in-directory aten/build (also didn't seem to work)
+cmake .. -DCMAKE_INSTALL_PREFIX=/Users/nathan/src/c/aten-build/install -DNO_CUDA=true
+***** trying this
+cmake -DCMAKE_INSTALL_PREFIX=/Users/nathan/src/c/aten-build/install ..
+***** Just trying in the root
+cmake aten -DCMAKE_INSTALL_PREFIX=/Users/nathan/src/c/aten-build/install -DNO_CUDA=true
+***** DONE Just trying hasktorch's copy manually: (This worked after installing typing)
+****** NOTE in the aten/build folder (the STATIC direcive is added)
+sudo pip install typing
+
+sans_cuda=true
+CC=gcc
+CXX=g++
+cmake .. -DNO_CUDA=$sans_cuda -DCMAKE_C_COMPILER=$CC -DCMAKE_CXX_COMPILER=$CXX -DCMAKE_CC_COMPILER=$CC -DCXX=$CXX -DCC=$CC -Wno-dev -DAT_LINK_STYLE=STATIC -DCMAKE_INSTALL_PREFIX=.
+
+make install -j4
+****** got this unhelpful message:
+cabal: Missing dependency on a foreign library:
+Missing (or bad) C library: ATen
+****** with -v3 discovered
+ld: library not found for -lATen
+clang: error: linker command failed with exit code 1 (use -v to see
+****** trying
+LIBRARY_PATH="/Users/nathan/src/haskell/hasktorch/ffi/deps/aten/build/lib"
+LD_LIBRARY_PATH="/Users/nathan/src/haskell/hasktorch/ffi/deps/aten/build/lib"
+****** NOTE Now trying (not sure what the scoping is but seemed to fix it)
+export CPATH=$CPATH:/Users/nathan/src/haskell/hasktorch/ffi/deps/aten/build/include
+export LIBRARY_PATH=$LIBRARY_PATH:/Users/nathan/src/haskell/hasktorch/ffi/deps/aten/build/lib
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/Users/nathan/src/haskell/hasktorch/ffi/deps/aten/build/lib
+****** Does that not work? is there some subshel
+ library, which is actually a file named liblibrary.a
+so I guess libATen.a (or maybe libATen.so)
+****** I only have dynlibs there. I see aten/src/ATen/CMakeLists.txt has AT_LINK_STYLE SHARED as the default.
+***** FIXED python3: command not found (later, trying to update on <2020-01-30 Thu>)
+****** message:
+Generate ATen files.
+~/src/haskell/hasktorch/deps/pytorch ~/src/haskell/hasktorch/deps
+get-deps.sh: line 125: python3: command not found
+****** Uh, just trying: alias python3=python That didn't work
+****** Maybe it's picking a different python than my shell, somehow?
+****** I think there's a bug in the script, it changes to python3 no matter what. I.e. echoing python version:
+Python 3.6.9
+python3
+****** FIXME Then just commenting that out I get missing yaml
+ModuleNotFoundError: No module named 'yaml'
+****** pip install pyyaml
+Requirement already satisfied: pyyaml in /opt/local/Library/Frameworks/Python.framework/Versions/3.4/lib/python3.4/site-packages (3.12)
+****** Guess this is common?
+https://github.com/yaml/pyyaml/issues/291
+****** popip is pointing to a different python (that is 3.4, and my shell python is 3.6.9)
+Requirement already satisfied: pyyaml in /opt/local/Library/Frameworks/Python.framework/Versions/3.4/lib/python3.4/site-packages (3.12)
+****** port select --list pip
+port select --list pip
+****** While:
+port select --list python
+Warning: port definitions are more than two weeks old, consider updating them by running 'port selfupdate'.
+Available versions for python:
+	none
+	python27
+	python27-apple
+	python34
+	python36 (active)
+****** sudo port install py36-pip
+****** then
+sudo port select --set pip pip36
+sudo port select --set pip3 pip36
+sudo port select --set python python36
+sudo port select --set python3 python36
+****** then
+sudo pip install pyyaml
+****** Download stopped working so added -s
+sh get-deps.sh -s
+****** Then
+**** FIXED cabal: Failed to build hasktorch-indef-0.0.1.0  (built a whole ton of stuff but not sure it works)
+***** (trying to export LD_LIBRARY_PATH like the others)
+(which is required by
+exe:static-tensor-usage from hasktorch-examples-0.0.1.0).
+
+<command line>: can't load .so/.DLL for: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.4.4/hasktorch-ffi-th-0.0.1.0/build/libHShasktorch-ffi-th-0.0.1.0-inplace-ghc8.4.4.dylib (dlopen(/Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.4.4/hasktorch-ffi-th-0.0.1.0/build/libHShasktorch-ffi-th-0.0.1.0-inplace-ghc8.4.4.dylib, 5): Library not loaded: @rpath/libATen.1.dylib
+  Referenced from: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.4.4/hasktorch-ffi-th-0.0.1.0/build/libHShasktorch-ffi-th-0.0.1.0-inplace-ghc8.4.4.dylib
+  Reason: image not found)
+***** Trying static building
+cabal v2-build hasktorch-types-th --enable-static -v3
+****** just gave a cryptic 
+ghc: could not execute: 
+/Users/nathan/.ghcup/bin/ghc returned ExitFailure 1
+****** NOTE Executing the ghc command dumps a bunch of ctrl G characters to the screen.
+cabal v2-build all --extra-lib-dirs=/Users/nathan/src/haskell/hasktorch/ffi/deps/aten/build/lib
+****** This kicked off a huge build but I wasn't sure it fixed things? Maybe it did??
+cabal v2-run static-tensor-usage --extra-lib-dirs=/Users/nathan/src/haskell/hasktorch/ffi/deps/aten/build/lib
+**** FIXED dyld: Library not loaded: /opt/local/lib/libssl.1.0.0.dylib (2nd try)
+***** A: Was a bad curl program, fixed by macports fiddling
+***** when: cabal v2-run regression
+***** Maybe openssl10 ?
+***** trying static (no change): cabal v2-run regression --enable-static
+still:
+dyld: Library not loaded: /opt/local/lib/libssl.1.0.0.dylib
+***** Notably this used to be there (my locate db has it, but it's not there anymore)
+/opt/local/lib/libssl.1.0.0.dylib
+***** but now:
+/opt/local/lib/openssl-1.0/libssl.1.0.0.dylib
+***** Ah, it's my curl that's broken. Trying
+sudo port rev-upgrade
+--->  Found 14 broken ports, determining rebuild order
+ python27 @2.7.16+universal
+ python34 @3.4.7
+ postgresql90 @9.0.23
+ postgresql94 @9.4.21
+ postgresql95 @9.5.16
+ curl @7.65.3+ssl
+ socat @1.7.3.3
+ kerberos5 @1.17
+ cyrus-sasl2 @2.1.27+kerberos
+ openldap @2.4.48
+ nodejs4 @4.8.4
+ openssh @7.6p1+hpn+kerberos5+xauth
+ boost @1.66.0+no_single+no_static+python27+universal
+ gearmand @1.1.12+sqlite
+***** Did not seem to fix curl
+Error: rev-upgrade failed: Error rebuilding postgresql90
+***** Who cares remove old postgres:
+sudo port uninstall --follow-dependents postgresql90
+***** Who cares remove old node:
+Error: nodejs6 has been replaced by nodejs8; please install that instead.
+Error: Failed to configure nodejs6: obsolete port
+sudo port uninstall --follow-dependents nodejs4
+***** That at least fixed curl, going back to: cabal v2-run regression
+**** FIXED cabal: Missing dependencies on foreign libraries: Missing (or bad) C libraries: c10, torch
+***** c10, torch is a cuda library
+***** They are clearly in extra-libraries in libtorch-ffi.cabal
+***** Just trying to list the extra-lib dir explicitly: (no help)
+cabal v2-run regression --extra-lib-dirs=/Users/nathan/src/haskell/hasktorch/ffi/deps/aten/build/lib
+***** Can't seem to install in the aten/build folder like I presumably did before?
+***** How are these even built? something with "conda"??
+conda install numpy ninja pyyaml mkl mkl-include setuptools cmake cffi typing
+***** Does that conflict with macports? https://www.maninara.com/2017/01/build-caffe-on-os-x-using-macports-and.html
+***** Python 3.7 version https://www.anaconda.com/distribution/#download-section
+***** Just trying to install pythorch in its dist directory (this doesn't work)
+MACOSX_DEPLOYMENT_TARGET=10.9 CC=clang CXX=clang++ python setup.py install
+FileNotFoundError: [Errno 2] No such file or directory: 'nvcc': 'nvcc'
+****** Presumably some nvidia cuda thing.
+***** NOTE trying
+git submodule update --init --recursive
+***** trying some more random flags in hasktorch/deps/pytorch:
+USE_CUDA=0 MACOSX_DEPLOYMENT_TARGET=10.13 CC=clang CXX=clang++ python setup.py install
+****** This seemed to be doing stuff after the submodule update
+****** But broke on mkldnn?
+[ 50%] Built target mkldnn
+make: *** [all] Error 2
+Traceback (most recent call last):
+  File "setup.py", line 756, in <module>
+    build_deps()
+subprocess.CalledProcessError: Command '['cmake', '--build', '.', '--target', 'install', '--config', 'Release', '--', '-j', '8']' returned non-zero exit status 2.
+******* somewhere in
+third_party/ideep/mkl-dnn/src/CMakeFiles/mkldnn.dir/cpu/simple_sum.cpp.o
+******* Just re-tried in that folder via
+cd third_party/ideep/mkl-dnn/
+cmake --build . --target install --config Release -- -j8
+******* Ah, it tried installing in /usr/local/share
+Install the project...
+-- Install configuration: "Release"
+CMake Error at cmake_install.cmake:31 (file):
+  file cannot create directory: /usr/local/share/doc/mkldnn.  Maybe need
+  administrative privileges.
+
+maybe like -DCMAKE_INSTALL_PREFIX=.
+***** NOTE Trying w/ local prefix (installed a TON more, but still failed)
+CMAKE_INSTALL_PREFIX=. USE_CUDA=0 MACOSX_DEPLOYMENT_TARGET=10.13 CC=clang CXX=clang++ python setup.py install
+***** FIXED failed at 
+****** Maybe:
+Traceback (most recent call last):
+  File "tools/setup_helpers/generate_code.py", line 86, in <module>
+    main()
+AssertionError: aten::allclose(Tensor self, Tensor other, float rtol=1e-05, float atol=1e-08, bool equal_nan=False) -> bool is flagged as JIT signature compliant, but does not match the signature aten::allclose(Tensor self, Tensor other, float rtol=1.0e-05, float atol=1.0e-08, bool equal_nan=False) -> bool
+****** Um, looks like
+aten::allclose(Tensor self, Tensor other, float rtol=1e-05,   float atol=1e-08,   bool equal_nan=False) -> bool
+aten::allclose(Tensor self, Tensor other, float rtol=1.0e-05, float atol=1.0e-08, bool equal_nan=False) -> bool
+******* A 1.0 vs 1 error?
+******* in
+torch/csrc/autograd/generated/python_torch_functions.cpp
+torch/csrc/autograd/generated/python_variable_methods.cpp
+******* we see the 1.0e convention. I'll switch to that, lets sese
+******* but now I still see (Which is he opposite direction
+AssertionError: 
+aten::allclose(Tensor self, Tensor other, float rtol=1.0e-05, float atol=1.0e-08, bool equal_nan=False) -> bool
+aten::allclose(Tensor self, Tensor other, float rtol=1e-05, float atol=1e-08, bool equal_nan=False) -> bool
+****** but certainly:
+make[1]: *** [caffe2/CMakeFiles/torch.dir/all] Error 2
+subprocess.CalledProcessError: Command '['cmake', '--build', '.', '--target', 'install', '--config', 'Release', '--', '-j', '8']' returned non-zero exit status 2.
+****** Trying manually:
+CMAKE_INSTALL_PREFIX=. cmake --build . --target install --config Release -- -j8
+****** could not load cache
+****** looks like we need the following deps:
+https://caffe2.ai/docs/getting-started.html?platform=mac&configuration=compile
+brew install \
+    automake \
+    cmake \
+    git \
+    gflags \
+    glog \
+    python
+
+pip install --user \
+    future \
+    numpy \
+    protobuf \
+    pyyaml \
+    six
+****** But installation says only use pytorch, like I tried.
+****** So
+sudo port install google-glog gflags
+pip install --user future numpy protobuf pyyaml six
+****** after that, trying again (fails)
+CMAKE_INSTALL_PREFIX=. USE_CUDA=0 MACOSX_DEPLOYMENT_TARGET=10.13 CC=clang CXX=clang++ python setup.py install
+****** somehow related to generate-torch-sources and TORCH_GENERATED_CODE
+****** allclose relates to 
+aten/src/ATen/native/native_functions.yaml
+aten/src/ATen/native/TensorCompare.cpp
+****** NOTE So rewrote it in terms of 1.0e-05 etc in the cpp files. Seemed to work? 
+****** Had another fail but it was trying to install into 
+Call Stack (most recent call first):
+  cmake_install.cmake:32 (include)CMake Error at third_party/protobuf/cmake/cmake_install.cmake:31 (file):
+  file INSTALL cannot copy file
+  "/Users/nathan/src/haskell/hasktorch/deps/pytorch/build/lib/libprotobuf-lite.a"
+  to "/usr/local/lib/libprotobuf-lite.a".
+Call Stack (most recent call first):
+  cmake_install.cmake:32 (include)
+****** Which... why where you trying to do that? 
+subprocess.CalledProcessError: Command '['cmake', '--build', '.', '--target', 'install', '--config', 'Release', '--', '-j', '8']' returned non-zero exit status 2.
+****** Now, getting the top level hasktorch to build
+****** NOTE complains about missing      fatal error: 'ATen/ATen.h' file not found
+******* Just need to explicitly include libs and headers:
+cabal v2-run regression --extra-lib-dirs=/Users/nathan/src/haskell/hasktorch/deps/pytorch/build/lib  --extra-include-dirs=/Users/nathan/src/haskell/hasktorch/deps/libtorch/include --extra-include-dirs=/Users/nathan/src/haskell/hasktorch/deps/libtorch/include/torch/csrc/api/include
+******* which is  ./deps/libtorch/include/
+****** NOTE Clearly the setenv script isn't set up how haskell expects, but the setup-cabal.sh shows the ones you need.
+***** FIXED Unsupported extension: NoStarIsType
+****** Their stackage snapshot is lts-14.7 = ghc-8.6.5 (Seemed to work)
+***** FIXED Symbol not found: __ZN10onnx_torch28_TypeProto_default_instance_E
+****** A: Don't build the pytorch stuff from source, I never got that to work. 
+******* the -rpath linker option was the key to have it find the libC10 so. 
+******* Likely the "right" answer is to just install the .so in opt wherever but this seemed to work.
+****** message:
+<command line>: can't load .so/.DLL for: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib (dlopen(/Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib, 5): Symbol not found: __ZN10onnx_torch28_TypeProto_default_instance_E
+  Referenced from: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib
+  Expected in: flat namespace
+ in /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib)
+cabal: Failed to build hasktorch-0.2.0.0 (which is required by exe:regression
+from examples-0.2.0.0).
+****** Seems like similar probelms are just mysterious https://github.com/commercialhaskell/stack/issues/740
+****** I do notice
+ld: warning: direct access in function 'torch::jit::(anonymous namespace)::EncoderBase::EncodeValueInfo(onnx_torch::GraphProto*, onnx_torch::ValueInfoProto*, torch::jit::Value const*, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, std::__1::unordered_map<long long, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, std::__1::hash<long long>, std::__1::equal_to<long long>, std::__1::allocator<std::__1::pair<long long const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > > > >, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > >, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > >, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const, std::__1::unordered_map<long long, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, std::__1::hash<long long>, std::__1::equal_to<long long>, std::__1::allocator<std::__1::pair<long long const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > > > > > > > const&)' from file '/Users/nathan/src/haskell/hasktorch/deps/pytorch/build/lib/libtorch.a(export.cpp.o)' to global weak symbol 'typeinfo for c10::bad_optional_access' from file '/Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/Torch/Internal/Unmanaged/Native.dyn_o' means the weak symbol cannot be overridden at runtime. This was likely caused by different translation units being compiled with different visibility settings.
+****** Maybe --dynlibdir or dynamic-library-dirs
+****** note that's a mangled name that's not Haskell:
+https://github.com/emscripten-core/emscripten/issues/8986
+error: undefined symbol: g$_ZN11opencv_onnx28_TypeProto_default_instance_E
+****** tried cabal v2-run regression --enable-static but
+Building library for hasktorch-0.2.0.0..
+<command line>: can't load .so/.DLL for: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib (dlopen(/Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib, 5): Library not loaded: @rpath/libc10.dylib
+  Referenced from: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib
+  Reason: image not found)
+****** This was the automated cabal.project.local
+
+#  extra-include-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/include/torch/csrc/api/include
+#  extra-include-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/include
+#  extra-lib-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/lib
+******* Note it picked a slightly different extra-lib-dirs than the one I used maybe bad? idk?
+****** Could -fvisibility=hidden -fvisibility-inlines-hidden
+https://stackoverflow.com/questions/9894961/strange-warnings-from-the-linker-ld/9954259#9954259
+******* At least get those error messages to go away?
+******* No clue where to start. mentioned a billion times in the deps folder.
+****** Ah, forgot the explicit lists (but shouldn't this be from cabal.project.local?)
+cabal v2-run regression --extra-lib-dirs=/Users/nathan/src/haskell/hasktorch/deps/pytorch/build/lib  --extra-include-dirs=/Users/nathan/src/haskell/hasktorch/deps/libtorch/include --extra-include-dirs=/Users/nathan/src/haskell/hasktorch/deps/libtorch/include/torch/csrc/api/include
+****** NOTE Just giving up and trying not to build transitive deps from source. Just using the get-deps.sh command
+******* (Not holding out much hope, don't see how it would be different)
+******* Yep:
+<command line>: can't load .so/.DLL for: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib (dlopen(/Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib, 5): Library not loaded: @rpath/libc10.dylib
+  Referenced from: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib
+  Reason: image not found)
+******* But apparently shared objects not in default paths are just fundamentally broken?
+https://github.com/commercialhaskell/stack/issues/1161
+******* Debug info:
+Environment: [("Apple_PubSub_Socket_Render","/private/tmp/com.apple.launchd.dwXNv5BIQY/Render"),("CAML_LD_LIBRARY_PATH","/Users/nathan/.opam/4.03.0/lib/stublibs"),("COLUMNS","115"),("DISPLAY","/private/tmp/com.apple.launchd.fmGfWJQbrd/org.macosforge.xquartz:0"),("DYLD_LIBRARY_PATH","/Users/nathan/src/haskell/hasktorch/deps/libtorch/lib/"),("FLEX_HOME","/Users/nathan/src/kibooco/flex_sdk_4.6"),("HOME","/Users/nathan"),("INSIDE_EMACS","25.3.3,comint"),("JAVA_HOME","/Library/Java/JavaVirtualMachines/jdk1.8.0_25.jdk/Contents/Home"),("LANG","en_CA.UTF-8"),("LOGNAME","nathan"),("MANPATH","/opt/local/share/man:/Users/nathan/.nvm/versions/node/v6.9.5/share/man:/opt/local/share/man::/Users/nathan/.opam/4.03.0/man:/Users/nathan/.opam/4.03.0/man"),("NVM_BIN","/Users/nathan/.nvm/versions/node/v6.9.5/bin"),("NVM_CD_FLAGS",""),("NVM_DIR","/Users/nathan/.nvm"),("OCAML_TOPLEVEL_PATH","/Users/nathan/.opam/4.03.0/lib/toplevel"),("OLDPWD","/Users/nathan/src/haskell/hasktorch/deps"),("OPAMUTF8MSGS","1"),("PATH","/Users/nathan/.cargo/bin:/Users/nathan/.nvm/versions/node/v6.9.5/bin:/Users/nathan/.opam/4.03.0/bin:/opt/local/bin:/opt/local/sbin:/Users/nathan/.cabal/bin:/Users/nathan/.ghcup/bin:/usr/local/heroku/bin:/usr/local/texlive/2015basic/bin/x86_64-darwin:/Users/nathan/src/kibooco/flex_sdk_4.6/bin:/Users/nathan/.stack/programs/x86_64-osx/ghc-7.10.2/bin:/Users/nathan/src/sparkfund/datomic-pro-0.9.5703/bin:/Users/nathan/.local/bin:/Users/nathan/.cabal/bin:/Users/nathan/.ghcup/bin:/Users/nathan/.npmlibs/bin:/Users/nathan/bin:/opt/local/bin:/opt/local/sbin:/Applications/MacPorts/Emacs.app/Contents/MacOS/bin:/Users/nathan/.cargo/bin:/Users/nathan/.opam/4.03.0/bin:/opt/local/bin:/opt/local/sbin:/Users/nathan/.cabal/bin:/Users/nathan/.ghcup/bin:/usr/local/heroku/bin:/usr/local/texlive/2015basic/bin/x86_64-darwin:/Users/nathan/src/kibooco/flex_sdk_4.6/bin:/Users/nathan/.stack/programs/x86_64-osx/ghc-7.10.2/bin:/Users/nathan/src/sparkfund/datomic-pro-0.9.5703/bin:/Users/nathan/.local/bin:/Users/nathan/.cabal/bin:/Users/nathan/.ghcup/bin:/Users/nathan/.npmlibs/bin:/Users/nathan/bin:/opt/local/bin:/opt/local/sbin:/Applications/MacPorts/Emacs.app/Contents/MacOS/bin:/usr/local/bin:/Users/nathan/.cargo/bin:/Users/nathan/.opam/4.03.0/bin:/opt/local/bin:/opt/local/sbin:/Users/nathan/.cabal/bin:/Users/nathan/.ghcup/bin:/usr/local/heroku/bin:/usr/local/texlive/2015basic/bin/x86_64-darwin:/Users/nathan/src/kibooco/flex_sdk_4.6/bin:/Users/nathan/.stack/programs/x86_64-osx/ghc-7.10.2/bin:/Users/nathan/src/sparkfund/datomic-pro-0.9.5703/bin:/Users/nathan/.local/bin:/Users/nathan/.cabal/bin:/Users/nathan/.ghcup/bin:/Users/nathan/.npmlibs/bin:/Users/nathan/bin:/opt/local/bin:/opt/local/sbin:/Applications/MacPorts/Emacs.app/Contents/MacOS/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/TeX/texbin:/opt/X11/bin"),("PERL5LIB","/Users/nathan/.opam/4.03.0/lib/perl5:/Users/nathan/.opam/4.03.0/lib/perl5:"),("PWD","/Users/nathan/src/haskell/hasktorch"),("SDKROOT","macosx10.14"),("SHELL","/bin/bash"),("SHLVL","1"),("SSH_AUTH_SOCK","/private/tmp/com.apple.launchd.DwRlLUe4hJ/Listeners"),("TERM","dumb"),("TERMCAP",""),("TEXINPUTS",".:/Users/nathan/.emacs.d/straight/build/auctex/latex:"),("TMPDIR","/var/folders/kp/ffm095r93kncw4vmk3hw3q7w0000gn/T/"),("USER","nathan"),("XPC_FLAGS","0x0"),("XPC_SERVICE_NAME","0"),("_","/Users/nathan/.ghcup/bin/cabal"),("__CF_USER_TEXT_ENCODING","0x1F5:0x0:0x52")]
+******* Maybe @rpath is the key?
+https://stackoverflow.com/questions/14656657/linking-a-dynamic-library-libjvm-dylib-in-mac-os-x-rpath-issue
+-optl-Wl,-rpath,<javahome>/jre/lib/server
+******* ld: -rpath can only be used when creating a dynamic final linked image. Trying it only for libtorch-ffi
+******* NOTE That worked!
+
+package libtorch-ffi
+  extra-include-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/include/torch/csrc/api/include
+  extra-include-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/include
+  extra-lib-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/lib
+  ghc-options: -optl-Wl,-rpath,/Users/nathan/src/haskell/hasktorch/deps/libtorch/lib
+
+package *
+  extra-lib-dirs: /Users/nathan/src/haskell/hasktorch/deps/mklml/lib
+
+***** A: Answer was to NOT rebuild deps manually (use the downloader script) AND make sure cabal.project.local was set up like (note the rpath so the executables can find the SOs.):
+
+package libtorch-ffi
+  extra-include-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/include/torch/csrc/api/include
+  extra-include-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/include
+  extra-lib-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/lib
+  ghc-options: -optl-Wl,-rpath,/Users/nathan/src/haskell/hasktorch/deps/libtorch/lib
+
+package *
+  extra-lib-dirs: /Users/nathan/src/haskell/hasktorch/deps/mklml/lib
+
+**** DONE how do I include this as a lib? Can you list them in packages
+***** Might not really be practical. Might have to essentially rebuild them for each use until the build process is more hackage-ified?
+***** Sounds like listing it in "packages:" treats it as a local package and won't be shared in a local store.
+***** distinction affects lots of things. Eg cabal v2-build flags cause recompilation of local packages but not ALL transitive dependencies.
+***** source-repository-package can specify a git location for an external dependency -- but that won't use my ad-hoc build process.
+***** Trying just with a  cabal.project.local that has like "../hasktorch/codegen/*.cabal" like-folders.
+***** Seems to be rebuilding everything. "Configuration changed" seems to be pretty sensitive.
+***** naiive inclusion complains about the rpath missing. But adding rpath in the libtorch-ffi doesn't seem to work here? Complained about like 
+ld: -rpath can only be used when creating a dynamic final linked image
+***** But trying again seemed better?
+**** FIXME How to get haskell-mode repl?
+***** Weirdly cabal v2-repl works. my haskell-process-type is "cabal-new-repl"
+***** BUT I recall it getting confused if it saw cabal and stack stuff, so maybe it's trying to call stack?
+***** I see the "can't load .so" error. 
+***** In emacs (doesn't work) (Notice it leaves off libtorch and hasktorch dependencies)
+Resolving dependencies...
+Build profile: -w ghc-8.6.5 -O1
+In order, the following will be built (use -v for more details):
+ - examples-0.2.0.0 (lib:static-mnist) (first run)
+Preprocessing library 'static-mnist' for examples-0.2.0.0..
+GHCi, version 8.6.5: http://www.haskell.org/ghc/  :? for help
+<command line>: can't load .so/.DLL for: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib (dlopen(/Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib, 5): Library not loaded: @rpath/libc10.dylib
+  Referenced from: /Users/nathan/src/haskell/hasktorch/dist-newstyle/build/x86_64-osx/ghc-8.6.5/libtorch-ffi-1.4.0.0/build/libHSlibtorch-ffi-1.4.0.0-inplace-ghc8.6.5.dylib
+  Reason: image not found)
+cabal: repl failed for lib:static-mnist from examples-0.2.0.0.
+***** Manually in shell (works):
+cabal v2-repl static-mnist
+Resolving dependencies...
+Build profile: -w ghc-8.6.5 -O1
+In order, the following will be built (use -v for more details):
+ - libtorch-ffi-1.4.0.0 (lib) (configuration changed)
+ - hasktorch-0.2.0.0 (lib) (dependency rebuilt)
+ - examples-0.2.0.0 (lib:static-mnist) (dependency rebuilt)
+Configuring library for libtorch-ffi-1.4.0.0..
+Preprocessing library for libtorch-ffi-1.4.0.0..
+Building library for libtorch-ffi-1.4.0.0..
+Preprocessing library for hasktorch-0.2.0.0..
+Building library for hasktorch-0.2.0.0..
+Preprocessing library 'static-mnist' for examples-0.2.0.0..
+GHCi, version 8.6.5: http://www.haskell.org/ghc/  :? for help
+[1 of 2] Compiling Image            ( static-mnist/Image.hs, interpreted )
+[2 of 2] Compiling Common           ( static-mnist/Common.hs, interpreted )
+Ok, two modules loaded.
+***** Incidentally I see: Run 'cabal update' to get the latest list of available packages.
+****** But the it gets mad at me that that's an old v1 mode? cabal v2-update seems OK
+****** Yeah, that made it go away. I guess "cabal updaate" is out of date advice (or at least anticipating when it's the default).
+***** In another project I see TODO: add support for multiple packages in a directory
+****** This might be cabal at fault (or at least a bad interaction w/ cabal)
+./Distribution/Client/ProjectOrchestration.hs:532:9
+*** DONE Persist games on disk
+**** DONE Maybe nice to take another crack via sqlite, even though files is probably fine.
+**** Q: Do I do store one column per move type for storing probabilities? OR split into move/probaility?
+*** DONE Load Games from disk
+*** NOTE Bridge Play
+**** hands
+haskell d1
+
+d1 = GameState {_toPlay = North, _played = [], _northHand = Set.fromList [Card Clubs 1,Card Clubs 2,Card Clubs 7,Card Clubs 9,Card Diamonds 2,Card Diamonds 5,Card Hearts 7,Card Hearts 8,Card Spades 1,Card Spades 4,Card Spades 8,Card Spades 9,Card Spades 12], _eastHand = Set.fromList [Card Clubs 8,Card Clubs 11,Card Diamonds 8,Card Diamonds 9,Card Diamonds 12,Card Hearts 2,Card Hearts 6,Card Hearts 9,Card Hearts 13,Card Spades 2,Card Spades 6,Card Spades 10,Card Spades 13], _southHand = Set.fromList [Card Clubs 3,Card Clubs 4,Card Clubs 5,Card Clubs 6,Card Diamonds 3,Card Diamonds 6,Card Diamonds 11,Card Diamonds 13,Card Hearts 1,Card Hearts 10,Card Hearts 11,Card Spades 5,Card Spades 11], _westHand = Set.fromList [Card Clubs 10,Card Clubs 12,Card Clubs 13,Card Diamonds 1,Card Diamonds 4,Card Diamonds 7,Card Diamonds 10,Card Hearts 3,Card Hearts 4,Card Hearts 5,Card Hearts 12,Card Spades 3,Card Spades 7], _trump = Hearts, _northSouthWonTricks = 0, _eastWestWonTricks = 0}
+
+North: ♠KT952 ♥98 ♦63 ♣T832
+East: ♠AJ73 ♥AT73 ♦KT9 ♣Q9
+South: ♠Q6 ♥QJ2 ♦AQ74 ♣7654
+West: ♠84 ♥K654 ♦J852 ♣AKJ
+
+-- NeuralPlay Bridge:
+north 2C, 9C, 4C, JC -- my first crack suggests TC, 9C, 8C, JC, west takes it.
+west AC, 3C, QC, 5C -- mine wants west to play diamonds?: 5♦ 3♦ K♦ 4♦, T♥ Q♥ 6♥ 8♥
+                    -- or possibly hearts (??): 4♥ 9♥ 3♥ J♥, 6♣ A♣ T♣ Q♣ 2♦
+
+West bids at 4H.
+:{
+d2 = (d1 
+      & execMove (PlayCard (Card Clubs 1)) 
+      & execMove (PlayCard (Card Clubs 8))
+      & execMove (PlayCard (Card Clubs 3))
+      & execMove (PlayCard (Card Clubs 10))
+      )
+:}
+
+ns <- (UCT.iterateUTC 20000 bridgeLogic d2 UCT.initNodeState)
+printPlay (UCT.bestLine ns)
+
+:{
+d2 = (d1 
+      & execMove (PlayCard (Card Clubs 1)) 
+      & execMove (PlayCard (Card Clubs 8))
+      & execMove (PlayCard (Card Clubs 3))
+      & execMove (PlayCard (Card Clubs 10))
+      & execMove (PlayCard (Card Hearts 3))
+      & execMove (PlayCard (Card Hearts 7))
+      & execMove (PlayCard (Card Hearts 13))
+      & execMove (PlayCard (Card Hearts 1))
+      & execMove (PlayCard (Card Spades 13))
+      & execMove (PlayCard (Card Spades 5))
+      & execMove (PlayCard (Card Spades 3))
+      & execMove (PlayCard (Card Spades 1))
+      & execMove (PlayCard (Card Clubs 11))
+      & execMove (PlayCard (Card Clubs 4))
+      & execMove (PlayCard (Card Clubs 13))
+      & execMove (PlayCard (Card Clubs 3))
+      & execMove (PlayCard (Card Hearts 12))
+      & execMove (PlayCard (Card Hearts 8))
+      & execMove (PlayCard (Card Hearts 6))
+      & execMove (PlayCard (Card Hearts 10))
+      & execMove (PlayCard (Card Diamonds 7))
+      & execMove (PlayCard (Card Diamonds 2))
+      & execMove (PlayCard (Card Diamonds 12))
+      & execMove (PlayCard (Card Diamonds 13))
+      & execMove (PlayCard (Card Diamonds 11))
+      & execMove (PlayCard (Card Diamonds 1))
+      & execMove (PlayCard (Card Diamonds 5))
+      & execMove (PlayCard (Card Diamonds 9))
+      & execMove (PlayCard (Card Hearts 11))
+      & execMove (PlayCard (Card Hearts 4))
+      & execMove (PlayCard (Card Spades 4))
+      & execMove (PlayCard (Card Hearts 9))
+      & execMove (PlayCard (Card Diamonds 3))
+      & execMove (PlayCard (Card Diamonds 4))
+      & execMove (PlayCard (Card Spades 8))
+      & execMove (PlayCard (Card Diamonds 8))
+      & execMove (PlayCard (Card Spades 10)) --
+      & execMove (PlayCard (Card Spades 11))
+      & execMove (PlayCard (Card Spades 7))
+      & execMove (PlayCard (Card Spades 12))
+      & execMove (PlayCard (Card Spades 9)) --
+      & execMove (PlayCard (Card Spades 2))
+      & execMove (PlayCard (Card Clubs 5))
+      & execMove (PlayCard (Card Hearts 5))
+      & execMove (PlayCard (Card Diamonds 10)) --
+      & execMove (PlayCard (Card Clubs 7))
+      & execMove (PlayCard (Card Hearts 2))
+      & execMove (PlayCard (Card Diamonds 6))
+      & execMove (PlayCard (Card Spades 6)) --
+      & execMove (PlayCard (Card Spades 6)) --
+      )
+:}
+-- going to play out a hand, as West/East since they won bid. (my choice, Neural's suggestion)
+north 2C (9C, 9C) 4C (JC,JC)
+west (4H, 6H) 8H (AH, AH) -- First is an equivalent choice
+east (AS, 3H) 6S (4S,4S) 2S  -- disagreement on next suit! (Agreement on how to follow)
+east (QC,QC) 5C (AC,AC) 3C -- agreement on lead! (second is irrelevant, though they do agree)
+west (KH,KC) 9H (7H,3H) JH  -- disagreement on next lead suit again! And wants  the 7H when E has the 3H!?
+west (8D,KC) 3D (KD,TD) AD -- And E voluntarily drops the King (!?!). (My system knew S would play the AD?)
+south QD (2D,2D) 6D 10D
+south QH (5H,6H) 5S (TH,3H)  -- 4H,5H is irrelevant, but TH (!? with the 3H??)
+south 4D (5D,5D) 9S (9D,9D) -- 9D was only choice.
+east (JS,7S) QS (8S) KS -- the JS whe you nave the 3S?
+north TS (3S, 7S) 6C (6H,6H) -- disagrees again, but the trump is agreed
+west (JD,KC) 8C (3H,3H) 7D
+east (7S) 7C (KC) 10C
+-- took 9 lost 4.
+BUT the self-play won 9 and lost 4, so certainly can't say it's unreasonable!!
+Double dummy put it at 8-4 (lead with 2C). So in the right ballpark! (Not sure we're missing something we don't match double dummy solver).
+**** FIXME Get the Debug Game to play sensibly!
+ns <- (UCT.iterateUTC 20000 debugGameLogic initGS UCT.initNodeState)
+UCT.bestLine ns
+[7,7,5,4,5,2,5,3,2,3]
+ns <- (UCT.iterateUTC 200000 debugGameLogic initGS UCT.initNodeState)
+λ> UCT.bestLine ns
+[9,8,9,8,8,5,9,4,5,0,7,3]
+***** It does tend towards the best moves, but just goes to show how many playouts one needs for sensible choices! I.e. given such an obvious game, how much worse would a subtle game be!!
+***** With binary win/lose (not as deep lookahead - makes sense, throws away information):
+ns <- (UCT.iterateUTC 200000 debugGameLogic initGS UCT.initNodeState)
+[9,8,9,8,6,4,2]
+*** NOTE (Gave up) Generalize beam directly to Vinyl records? So I don't have to make annoying real records?
+**** cf Frames-beam https://hackage.haskell.org/package/Frames-beam
+**** Beamable is in Beam.Schema.Tables, gives a zipBeamFieldsM and tblSkeleton
+https://hackage.haskell.org/package/beam-core-0.6.0.0/docs/src/Database-Beam-Schema-Tables.html
+***** like
+import Database.Beam.Schema.Tables
+:t zipBeamFieldsM
+***** default defiend via HasBeamFields, which defines what is a table.
+****** HasBeamField which defined in terms of GZipTables gZipTables which I think is kind of like applicative app for tables?
+****** but gZipTables isn't exported, so I don't think you can implement that directly, sadly. So might not be able to hook into Generics.
+****** Yeah, none of this is definable so if the generics don't work, not sure what can be done.
+****** That's defined for :*:'s M1's and U1's, so you'd imagine it would work for Vinyl records?
+***** Docs do say "You cannot override the methods of Beamable" so.
+****** ‘zipBeamFieldsM’ is not a (visible) method of class ‘B.Beamable’
+****** ‘tblSkeleton’ is not a (visible) method of class ‘B.Beamable’ (this one looks easy to fall through to default)
+***** and TableSkeleton
+***** But note that Columnar is not open (like HKT in Vinyl)
+**** Vinyl things are certainly generic (you can see the hlist structure, but afaik tuples do the same):
+from initDebugGameState
+M1 {unM1 = M1 {unM1 = K1 {unK1 = Identity (ActivePlayer 0)}}
+   :*: M1 {unM1 = M1 {unM1 = M1 {unM1 = K1 {unK1 = Identity (Moves 0)}}
+   :*: M1 {unM1 = M1 {unM1 = M1 {unM1 = K1 {unK1 = Identity (Score (fromList []))}} 
+   :*: M1 {unM1 = M1 {unM1 = M1 {unM1 = U1}}}}}}}}
+***** This one has the explicit Nil UI (presumably U1) at the end. vs a record or tuple that doesn't have that.
+**** FIXME could not deduce Database.Beam.Schema.Tables.GZipTables
+***** This is probably the notion of a "shallow" representation, but I'm not sure the implications of that.
+***** I think it could be the Nil isn't fully "unwrapping" kind of like tuples didn't. eg:
+data ANil = ANil deriving Generic
+type TupleWithNilT f = (B.C f Int, ANil)
+
+:kind! (Rep (TupleWithNilT BT.Ignored))
+(Rep (TupleWithNilT BT.Ignored)) :: * -> *
+= D1
+    ('MetaData "(,)" "GHC.Tuple" "ghc-prim" 'False)
+    (C1
+       ('MetaCons "(,)" 'PrefixI 'False)
+       (S1
+          ('MetaSel
+             'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy)
+          (Rec0 (BT.Ignored Int))
+        :*: S1
+              ('MetaSel
+                 'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy)
+              (Rec0 ANil)))
+***** Not necessarily, the vinyl type does unwrap to a U1 so it's not just that.
+***** So we get the tuple unwrapping with :*: but ANil should be U1 not a Rec0 -- no?
+:kind! (Rep ANil)
+(Rep ANil) :: * -> *
+= D1
+    ('MetaData "ANil" "PersistDebugGame" "main" 'False)
+    (C1 ('MetaCons "ANil" 'PrefixI 'False) U1)
+***** Does that mean I can't use the tuple driving stuff? What is typelevel tuple?
+**** FIXED (for tuples) No instance for (Database.Beam.Schema.Tables.GTableSkeleton
+***** A: Need to ensure tuples are expanded in generic representation, w/ via for example.
+***** This is when trying to beam a tuple:
+data RandomTuple f =
+  RandomTuple ( B.C f ActivePlayer, B.C f Moves, B.C f Score)
+  deriving (Generic, B.Beamable)
+***** Wondering about the K1 R = Rec0 instance?
+***** Ah, this is maybe failing this rule:
+instance ( Generic (tbl Ignored)
+         , GTableSkeleton (Rep (tbl Ignored)) ) =>
+    GTableSkeleton (K1 Generic.R (tbl Ignored)) where
+    gTblSkeleton _ = K1 (to' (gTblSkeleton (Proxy :: Proxy (Rep (tbl Ignored)))))
+***** I.e. we have Generic (RandomTuple Ignored) -- that's OK
+from ( undefined :: RandomTuple Ignored)
+***** Ah, cool trick:
+:kind! (Rep (RandomTuple Ignored))
+(Rep (RandomTuple Ignored)) :: * -> *
+= D1
+    ('MetaData "RandomTuple" "PersistDebugGame" "main" 'False)
+    (C1
+       ('MetaCons "RandomTuple" 'PrefixI 'False)
+       (S1
+          ('MetaSel
+             'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy)
+          (Rec0 (Ignored ActivePlayer, Ignored Moves, Ignored Score))))
+***** Oh, the tuple isn't expanded? But note that records ARE expanded (!!) (This one works)
+:kind! (Rep (RandomRecord Ignored))
+(Rep (RandomRecord Ignored)) :: * -> *
+= D1
+    ('MetaData "RandomRecord" "PersistDebugGame" "main" 'False)
+    (C1
+       ('MetaCons "RandomRecord" 'PrefixI 'True)
+       (S1
+          ('MetaSel
+             ('Just "_active")
+             'NoSourceUnpackedness
+             'NoSourceStrictness
+             'DecidedLazy)
+          (Rec0 (Ignored ActivePlayer))
+        :*: (S1
+               ('MetaSel
+                  ('Just "_moves")
+                  'NoSourceUnpackedness
+                  'NoSourceStrictness
+                  'DecidedLazy)
+               (Rec0 (Ignored Moves))
+             :*: S1
+                   ('MetaSel
+                      ('Just "_score")
+                      'NoSourceUnpackedness
+                      'NoSourceStrictness
+                      'DecidedLazy)
+                   (Rec0 (Ignored Score)))))
+***** And looking at the vinyl type:
+:kind! (Rep (DebugGameState Ignored))
+(Rep (DebugGameState Ignored)) :: * -> *
+= C1
+    ('MetaCons ":&" ('InfixI 'RightAssociative 7) 'False)
+    (S1
+       ('MetaSel
+          'Nothing 'NoSourceUnpackedness 'SourceStrict 'DecidedStrict)
+       (Rec0 (Ignored ActivePlayer))
+     :*: S1
+           ('MetaSel
+              'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy)
+           (C1
+              ('MetaCons ":&" ('InfixI 'RightAssociative 7) 'False)
+              (S1
+                 ('MetaSel
+                    'Nothing 'NoSourceUnpackedness 'SourceStrict 'DecidedStrict)
+                 (Rec0 (Ignored Moves))
+               :*: S1
+                     ('MetaSel
+                        'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy)
+                     (C1
+                        ('MetaCons ":&" ('InfixI 'RightAssociative 7) 'False)
+                        (S1
+                           ('MetaSel
+                              'Nothing 'NoSourceUnpackedness 'SourceStrict 'DecidedStrict)
+                           (Rec0 (Ignored Score))
+                         :*: S1
+                               ('MetaSel
+                                  'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy)
+                               (C1
+                                  ('MetaCons "RNil" 'PrefixI 'False)
+                                  (S1
+                                     ('MetaSel
+                                        'Nothing
+                                        'NoSourceUnpackedness
+                                        'NoSourceStrictness
+                                        'DecidedLazy)
+                                     U1)))))))
+***** This looks OK except maybe it doesn't like the U1 at the end? Perhaps it works for the skeleton instance but not the zip instance IDK.
+***** I.e. our leaves need to be "Rec0 (Ignored Field)" but the tuple gives "Rec0 (Ignored Field, Ignored Field, Ignored Field)"
+***** But how do we know if we know if we have GTableSkeleton (Rep (tbl Ignored))? Mabye:
+instance ( Generic (tbl Ignored)
+         , GTableSkeleton (Rep (tbl Ignored)) ) =>
+    GTableSkeleton (K1 Generic.R (tbl Ignored)) where
+    gTblSkeleton _ = K1 (to' (gTblSkeleton (Proxy :: Proxy (Rep (tbl Ignored)))))
+***** Maybe we could derive via? If we use a newtype and do:
+ deriving Generic via ( B.C f ActivePlayer, B.C f Moves, B.C f Score)
+****** That DOES expand into the tuple. Weirdly just doing the newtypederiving itself doesn't.
+**** OR Just write the dang record normally, and write nicer helpers to quickly get it into the Vinyl terminology. 
+***** I.e. there are packages that convert raw records into Vinyl records. see frames-beam. (though that uses ElField, while I may want newtype world).
+**** OR Maybe using deconstructor-first makes more sense for records anyhow? I.e. you are destructuring them more than constructing them, no? I.e. consider writing the queries etc. Maybe my whole philosophy is misguided.
+***** But I like the newtypes flowing along to the "scalar" utility functions once the record is pulled apart. Seems philosophically nice. (Key-values can do this too, but seems more opinionated to take a key/value as an argument, more typo-risky, etc).
+***** But naming the destructors to be used directly wouldn't be hard - just a type annotation on rget.
+**** v----- ACTIVE in PersistDebugGame.hs --------v
+**** DONE Can I do like... an ad-hoc Generic tweak pass? to erase the final VNil to like an "improper list"
+***** Well yeah, the record type and tuple types that work have no U1 at all, so maybe that's the trick.
+***** This actually might be a good use case for SOP style, which is more normalized? I.e. makes it easier to see all products flattenned consistently. Presumalby we could just filter out the U1/VNil case.
+***** or, eg vinyl-generics (that goes via regular records)
+***** Feels like making my own instance should be Generic1 since it's higher order? But maybe that's not right?
+***** I can derive a custom generic instance, but still doesn't get me Beamable: Couldn't match type ‘B.Columnar f [Char]’ with ‘f String’
+***** Note that's it's not idea to make it a vinyl record of Columnar fields, as I'm double-f-ing the fields. The whole point was to use Vinyl's f as the columnar f. But maybe that doesn't work. (i.e. you can't just use an unconstrained f for the record types either).
+***** I want to write something like:
+instance B.Beamable (TaggedRec (B.C f))
+***** or like
+newtype TaggedRecC f = TaggedRecC (TaggedRec (B.C f))
+The type synonym ‘B.C’ should have 2 arguments, but has been given 1
+***** Ah, maybe I'm partially applying a type synonym, and have to get in to like.. defunctionalization? Was that TyFn in vinyl?
+***** Haskell seems happy at this ":kind (TaggedRec (B.C Maybe))" but maybe that's a hard-coded thing in :kind, and "newtype" etc has stricter requirements.
+***** A: I don't fully understand this, but my guess is "No, even with the nice Generic instance, the types don't line up. You'd have to have a Vinyl record of Columnar fields, which is double-f-ing the fields. At that point, if you're writing ad-hoc iso conversions, why not just iso-convert from vinyl to the raw beam record."
+****** I.e. you'll have to write out an explicit version with the "Columnar f Int" For each field anyway, which will take up as much space as the vinyl type.
+*** v---------- ACTIVE ----------v
+*** TODO Get checked beam migrations working to simplify boilerplate, refactoring
+**** DONE Got auto migration working. See the Simple namespace -- works fine.
+**** DONE BM.defaultMigratableDbSettings can't match type. Too general?
+***** A: Tried (This just means I can't SQL-ize my newtype)
+randomDB :: BM.CheckedDatabaseSettings DBS.Sqlite RandomDB
+No instance for (BM.HasDefaultSqlDataType
+                         DBS.Sqlite ActivePlayer)
+***** Maybe cf http://hackage.haskell.org/package/beam-newtype-field
+**** NOTE even if we still have to write to/from by hand, it's not type unsafe anymore now that we can generate schemas from the row types, so we're still ahead if we do nothing else. It is boilerplate, but there are so many nontrivial conversions between tree-data and SQLite that you would expect code in the way.
+**** Q: What should I do re newtypes? sums?
+***** I'd love if I could get newtypes in vinyl easily out of records. Maybe with some light re-mapping.
+***** Eg sums to integers, with a separate "integer to tag name" table.
+***** Can you do isos on the lists-with-indices? There are "indexed lenses"
+***** Q: Can I generate the record type itself from the iso, so the iso is the source of truth? That would be cool.
+**** DONE Define prisms w.r.t. a "tagged-flat-record-view" (gave up)
+***** The problem is defining these lenses may not be easy, so I'm essentially just hand-writing both print/parse functions all the time anyway?
+***** But I surely could do some Generic or Generics.SOP approach to this?
+***** Could I a-la-carte use some of eg persistent's helpers? (That's template haskell though I think)
+****** Or maybe define the schema in terms of persistent and the queries via beam?
+****** Maybe my use case of "persisting this whole thing" is better served by persistent?
+***** You can "embed" columns together (eg Address Mixin example in docs under "models" section)
+***** I.e. recall the classic https://www.parsonsmatt.org/2019/03/19/sum_types_in_sql.html
+****** i.e. the "partition" or "Nullable Columns" pattern.
+***** Maybe better to stick with one table per type, i.e. name sum branch contents separately - each get their own table.
+****** But what even is the generic meaning of that? It's kind of like the "aggregating children into a list under a parent" problem, though you're "aggregating children into a sum type in the parent"
+**** Q: What should I do re storing maps, lists other than ad-hoccin' it?
+**** TODO Need a programmatic way to create tables for the eval functions, i.e. a column for each move suggestion.
+***** I could of course make them (action,value) pairs but seems like they should be inlined.
+*** TODO create naiive UCT player, with rollout
+**** TODO Create product (vs sum) version of possible moves, to be neural net learning freindly.
+**** Q: How do win values get updated to parents from child nodes? Sum, right?
+***** But is it like "wins from the perspective of who is playing this node?" I think so?
+***** So I'm just worried about the fencposting - i.e. an "I end my move" move - does that result in a win for ME (not the person whose turn it is after I execute my move).
+***** But then don't you need to pass up "who the winner was" when folding back up? I.e. you shouldn't explore a place where your opponent is winning.
+***** So maybe "wins" throughout the entire search is hardcoded from the perspective of the searcher? But then won't we not explore moves the enemy probably will consider? 
+***** And a loss for some other player might not be a win for us - so don't we need to bubble up win rates for all players?
+**** FIXED It never wins!? And it doesn't seem to work after 3 iterations (zero weight or empty list)
+***** Just bad math on the ln 1 case
+**** FIXED Thoughts on very first crack:
+***** Seems the general play is to wander each color off the board ASAP (and in turn!)
+***** They don't max share count out - it's bad to buy shares? They keep close to the initial 10
+***** on first blush pretty incoherent. This looks a lot like favouring like "first move in sort order."
+***** Yeah probably just played out each move more or less once, so a good chunk of them have equal win probabilities? Especially mid-game when there are a lot of options
+***** Hah! I'm picking the WORST move as the best line. oops.
+**** NOTE how manual playouts work now:
+initDivvys <- (divvyStartingShares defaultState)
+gs0 = fixedPlayout defaultState initDivvys
+ns0 <- evalMove 1000 gs0 initNodeState
+ns0 & _children & _moves & Map.toList & map (\(_, node) -> (fromRational ((fromIntegral (_wins node)) / (fromIntegral (_visited node))), (_visited node))) & List.sortOn snd & reverse
+**** Q: now with 100 rollouts we're picking 1%1 nodes (i.e. explored once with a win).
+***** But there are 58 initial moves, so we don't have a chance to hit each one twice.
+eg
+ns0 & _children & _moves & (Map.! (head (bestLine ns0))) & (\node -> (_wins node) % (_visited node))
+**** Q: Why are there more legalMoves than moves explored by UTC? Could it be chance?
+length ( legalMoves gs0)
+68
+****** but
+ns0 & _children & _moves & Map.toList & length
+58
+****** On a 1000 playout we get exactly 68 though so guess it evens out.
+***** Q: why do we have some 1 % 18 playouts on a 1000 playout That seems like a bad choice? We should never be exploring bad moves MORE than the good moves? (i.e. even if exploration is turned way up we should be just exploring evenly?)
+****** eg:
+ns0 & _children & _moves & Map.toList & map (\(_, node) -> ((_wins node) , (_visited node))) & List.sortOn snd & reverse
+****** Ah, it is pretty even. Probably just have exploration turned up too much.
+***** Q: but on exploreRate of 1, we get our best move on an 11 explored playout (!?) and our 21 explored playout is 0.4
+****** I guess it's still just proportional though, so any half-decent move will get a bunch of plays, could just be probability.
+**** Q: when there's only a single legal move (on the root) do that one, no need to think.
+***** Still worth calculating it in general of course for estimating parent nodes.
+**** FIXME on game 6, why is player 0 improving value of Black?, when player 1 owns so much more?
+game6 <- randomGameViaUTC 1000
+game6 <- SQ.withConnection "/Users/nathan/src/haskell/deep-games/game-archive.sqlite" (Persist.loadGame 6)
+(fixedPlayout defaultState (take 34 game6))
+ns6m35 <- evalMove 1000 (fixedPlayout defaultState (take 35 game6)) initNodeState
+***** We get ideas like:
+ns6m35 & _children & _moves & Map.toList & map (\(act, node) -> (((fromRational (fromIntegral (_wins node)) / (fromIntegral (_visited node))), act), (_visited node))) & List.sortOn (fst . fst) & reverse & take 10
+****** prob
+[((0.5384615384615384,),13),((0.5,ABuild (Build {_buildCorp = Brown, _buildHex = (5,6)})),14),((0.45,ABuild (Build {_buildCorp = Red, _buildHex = (9,10)})),20),((0.4444444444444444,ATrade (Trade {_tNum = TTwo, _sell = Black, _buy = Brown})),18),((0.42857142857142855,ABuild (Build {_buildCorp = Red, _buildHex = (9,9)})),14),((0.42857142857142855,ABuild (Build {_buildCorp = Yellow, _buildHex = (8,7)})),14),((0.4166666666666667,ABuild (Build {_buildCorp = Black, _buildHex = (3,7)})),12),((0.41025641025641024,ABuild (Build {_buildCorp = Black, _buildHex = (5,9)})),39),((0.3888888888888889,ABuild (Build {_buildCorp = Blue, _buildHex = (6,6)})),18),((0.38461538461538464,ABuild (Build {_buildCorp = Purple, _buildHex = (1,7)})),13)]
+***** Oh, this is player 1, makes sense locally: _activePlayer (fixedPlayout defaultState (take 35 game6))
+***** The best move on second look is selling purple and buying black though. But just one?
+***** eg: 7 % 13
+ns6m35 & _children & _moves & (Map.! (ATrade (Trade {_tNum = TOne, _sell = Brown, _buy = Black}))) & (\node -> (_wins node) % (_visited node))
+***** But the buying two is much worse outcome, supposedly? 53% -> 25%
+ns6m35 & _children & _moves & (Map.! (ATrade (Trade {_tNum = TTwo, _sell = Brown, _buy = Black}))) & (\node -> (_wins node) % (_visited node))
+3 % 14
+***** Could that be w/in the realm of accident still?
+***** I wonder if I have an off-by-one on my rollout, where I literally am favouring the wrong player sometimes, so its creating incoherent strategies.
+***** Q: And why, on game 6 are all the share purchases buying 1? (probably related)
+***** So, first prin
+**** NOTE game7 was a 5000 UCT, took like 10 hours to play (!!) but looks more coherent, with close, high scores.
+***** Q: why did p2 invest in blue on game7 & take 10 & last instead of "yellow"
+***** Q: again: Why did p2 buy black on 75, then sell back for the valuable red later on 78?
+****** Maybe there's a question of move efficiency? i.e if you want to keep blue, then going via a 2nd color lets you spend 3 trades to convert one blue into four black. Otherwise you'd spend two moves to convert two blue for four black. So if Timing is less important? (and careful reserve management, maybe?). Pretty wild guess though.
+***** Q: Why is p2 selling blue to buy purple on 88? they have a +4 lead on blue, and still 16 on stock? Why not milk that?
+****** Too far behind except to hope for a hail-mary?
+****** They sold the purple later on 91, so again maybe a slow-ball conversion?
+***** Strange that everyone switches back to unloading black into blue around 109? When bluel was kind of lamd duck earlier?
+****** but 112 we see p0 and p1 sell blue back for black. So maybe just stock juggling?
+**** FIXED game7 had people way over the stock limit (?)
+***** legalMoves (fixedPlayout defaultState (take 160 game7))
+***** Ah, it's we' can't own more than limit for a PARTICULAR corp. Oops!
+***** So game7 is what happens when you have unlimited share holding count.
+**** game7 is 2000 rollout with fixed stock limits.
+**** FIXED We're seeing negative stock holdings on randomGame
+***** eg:
+drawPCMap (fixedPlayout defaultState (take 47 acts0))
+***** Doesn't seem part of legalmoves however?
+***** Seems like fixedPlayout is giving different results than the return value of randomGame
+***** Maybe my foldl' is backward? Seems OK though?
+****** Ah! yes, I flip the initDivvys, since I expect reverse order.
+**** FIXED p1 could have won game9 in one move but chose not to. Soemthings off.
+{--}nextMove <- return (206 :: Int)
+nextMove <- showMove game9 nextMove
+206: Player 1 ABuild (Build {_buildCorp = Purple, _buildHex = (12,15)})
+nextMove <- showMove game9 nextMove
+207: Player 1 StopBuild
+***** And it's true they knew they were the winner
+winner (fixedPlayout defaultState (take 206 game9))
+1
+***** eg, just build out yellow and finish.
+(take 206 game9) ++ [ABuild (Build {_buildCorp = Yellow, _buildHex = (14,6)})]
+winner (fixedPlayout defaultState
+          ((take 206 game9) ++ [ABuild (Build {_buildCorp = Yellow, _buildHex = (14,6)})]))
+***** What did it think was the best? build purple
+em207 <- evalMove 500 (fixedPlayout defaultState (take 207 game9)) initNodeState
+em207 & _children & _moves & Map.toList & map (\(act, node) -> (((fromRational (fromIntegral (_wins node)) / (fromIntegral (_visited node))), act), (_visited node))) & List.sortOn (fst . fst) & reverse & take 10
+***** Could have certainly won by building purple out.
+***** But it visited this way more
+((1.0,ABuild (Build {_buildCorp = Yellow, _buildHex = (12,8)})),34)
+***** CAUTION It thinks stop Build is a guaranteed win, with 6 playouts.
+****** 6 playouts isn't much, so it's possible p1 COULD have won from that position if the other players played poorly?
+****** Maybe it's because there are so many possible wins that it just didn't have time to realize that that one is a potentially losing move.
+***** Q: What's the formula for between highly explored vs high win rate?
+****** Maybe some binomial credibility interval? And tweak pessimism by pickig best eg 25% percentile parameter estimate?
+***** DONE Just fake something with a "select on epsilon and pick highest visit count" for now. Exact accuracy doesn't matter, and it's really for the 1.0 win rate case where this will most likely show up.
+****** testing:
+em207 <- evalMove 500 (fixedPlayout defaultState (take 207 game9)) initNodeState
+em207 & _children & _moves & Map.toList & map (\(act, node) -> (((fromRational (fromIntegral (_wins node)) / (fromIntegral (_visited node))), act), (_visited node))) & List.sortOn snd & reverse & take 10
+****** So, assuming we do that build.
+em208b <- evalMove 500 (fixedPlayout defaultState ((take 207 game9) ++ [ABuild (Build {_buildCorp = Purple, _buildHex = (6,11)})]) ) initNodeState
+****** Aside: why doesn't this work?
+em208b <- evalMove 500 (fixedPlayout defaultState ((take 207 game9) ++ [ABuild (Build {_buildCorp = Purple, _buildHex = (6,11)})]) ) em207
+em209b <- evalMove 500 (fixedPlayout defaultState ((take 207 game9) ++ [ABuild (Build {_buildCorp = Purple, _buildHex = (6,11)}), ABuild (Build {_buildCorp = Purple, _buildHex = (7,15)})]) ) initNodeState
+em210b <- evalMove 500 (fixedPlayout defaultState ((take 207 game9) ++ [ABuild (Build {_buildCorp = Purple, _buildHex = (6,11)}), ABuild (Build {_buildCorp = Purple, _buildHex = (7,15)})]) ) initNodeState
+****** Looks like it chooses to build out purple, which is as good as anything.
+bestLine em209b
+[ABuild (Build {_buildCorp = Purple, _buildHex = (7,13)})]
+**** v---------- ACTIVE ----------v
+**** TODO try a new whole game from the fixed search that, when things are close, picks most explored.
+game10 <- randomGameViaUTC 3000
+***** FIXME Why did player1 spend out last blue and increase its value??
+nextMove <- showMove game10 nextMove
+64: Player 1 ABuild (Build {_buildCorp = Blue, _buildHex = (10,7)})
+****** P0 had 5 blue, and this increased value of blue to 5? What possible motivation did P1 have to do this?
+****** Maaaybe to block a green location, but P0 is less ahead on green
+**** TODO shuffle hidden information? 
+***** Not quite right, as we assume other opponents have perfect information of our moves. But it's conservative, i.e. assume we know nothing and they know everything, what's the best move?
+*** DONE Generalize UCT to not be Paris-specific
+**** I.e. Want to play out bridge hands now. A bit easier to test if it's generating sensible play, as I can compare to double-dummy solvers etc.
+*** TODO Port Paris to the generalized UCT
+*** TODO Set clock timeouts for AI instead of # of iterations.
+**** i.e. if a simpler technique works given same amount of time we want to know that.
+*** TODO Speed up playout.
+**** Relevant article https://blog.jez.io/profiling-in-haskell/
+**** See aslo https://github.com/haskell-perf/checklist
+**** Consider http://hackage.haskell.org/package/profiterole
+**** Looks like AiAi does ~47k playouts/second
+**** Q: Can I factor out sequential builds? I.e. could have lots of commutative waste.
+***** I'm sure this would greatly improve the strength.
+***** Makes whole-board move tree HUGE (though individual moves would still be tractable?)
+***** Like, maybe the UTC could be factored out (i.e. keys, as sets-of-builds so commutative differences collapse) but we leave the hypothetical neural net trained on sequential moves to avoid a billion nodes?
+***** Not sure how the probability math works out - are you doing like N choose M stuff? And maybe you can relax so you don't have to hard-code like "If you're choosing a new node, you don't have to ensure it doesn't commutatively match an existing node, just throw that stat into the bucket you didn't intend to cover".
+***** Q: More generally, are there systems for "relaxed aggregation" i.e. "build these exact hexes" -> "increase the value of black by N, there are X ways to do it" etc?
+****** I.e. let some "close moves" bleed together and share processing power. Especailly if opponent move is the same in either case, you get increased depth?
+****** And if so, could these generalizations/relaxations live at the neural net level?
+****** Seems something like this would be mandatory for any real-valued / infinite move space UCT application.
+***** Q: Could validate clustering by some sort of variance? I.e. "best responses are similar" or just "win rates are similar"
+***** Q: Seems "free" if just used to more evenly spread exploration to interesting areas. But when picking a move, sampling the "cluster neighbours" for your confidence metric might be interesting.
+*** TODO Generate random-play test data for gen-0 (naiive UTC)
+*** TODO Neural net
+**** Recall AGZ: 
+***** train via Cross-entropy of UCT probability estimation and win-bit estimation, for every move of every training game.
+***** NOTE Recall AGZ doesn't learn /move probability/ statistically from a sample, but rather trains on the actual UCT probabilities determined during the game. I.e. it's learning the brain of an earlier generation.
+***** UCT in-game uses move estimation as a temperature-controlled explore probability, while the win-bit is biased for exploitation.
+***** AGZ doesn't use any roll-out, just uses the win bit estimation at leaves for updating values.
+**** TODO output move probabilities: all possible builds with all possible corps, a stop-build bit and a trade 1/2.
+**** TODO output win bit
