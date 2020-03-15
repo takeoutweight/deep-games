@@ -348,7 +348,6 @@ insertGame conn =
   DBS.runBeamSqlite conn &
   withSavepoint conn
 
--- FIXME the numbers don't seem to line up. maybe my trim tree is off-by-one layer or something.
 recordGame :: [(Int, UCT.GameTree Int)] -> SQ.Connection -> IO Game
 recordGame actions conn = do
   game <- insertGame conn
@@ -377,9 +376,10 @@ recordGame actions conn = do
     B.insertValues &
     B.insert (_debugActions (BM.unCheckDatabase debugDB)) &
     B.runInsert &
-    DBS.runBeamSqliteDebug putStrLn conn &
+    DBS.runBeamSqlite conn & -- DBS.runBeamSqlite putStrLn conn &
     withSavepoint conn
   return game
 
--- rg <- UCT.randomGameViaUTC 10 DG.debugGameLogic DG.initGS
--- SQ.withConnection "test2.db" (\conn -> recordGame rg conn)
+-- rg3 <- UCT.randomGameViaUTC 1000 DG.debugGameLogic DG.initGS
+-- SQ.withConnection "test2.db" (\conn -> recordGame rg3 conn)
+-- UCT.bestLine (UCT.NodeState 0 0 (snd (rg3 !! 11)))

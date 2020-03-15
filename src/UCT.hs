@@ -116,7 +116,7 @@ playout explore logic gs nstate =
 -- pick one with a lower explore count.  The right math solution would probably
 -- be some approximation of credibility interval and, if we're pessimisitic,
 -- chooseing the best 25% confidence interval estimated win rate.
-bestMoveEpsilon = 1 / 50
+bestMoveEpsilon = 1 / 200
 
 winRate :: NodeState act -> Double
 winRate node = (_wins node) / (fromIntegral (_visited node))
@@ -131,8 +131,7 @@ bestLine nstate =
     False ->
       let moves0 =
             Map.toList (_moves (_children nstate)) &
-            (List.sortOn (\(act, node) -> winRate node)) &
-            reverse
+            (List.sortOn (\(act, node) -> winRate node))
           bestNode = moves0 & last & snd
           moves1 =
             moves0 &
