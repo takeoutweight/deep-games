@@ -795,8 +795,7 @@ The type synonym ‘B.C’ should have 2 arguments, but has been given 1
 ***** Haskell seems happy at this ":kind (TaggedRec (B.C Maybe))" but maybe that's a hard-coded thing in :kind, and "newtype" etc has stricter requirements.
 ***** A: I don't fully understand this, but my guess is "No, even with the nice Generic instance, the types don't line up. You'd have to have a Vinyl record of Columnar fields, which is double-f-ing the fields. At that point, if you're writing ad-hoc iso conversions, why not just iso-convert from vinyl to the raw beam record."
 ****** I.e. you'll have to write out an explicit version with the "Columnar f Int" For each field anyway, which will take up as much space as the vinyl type.
-*** v---------- ACTIVE ----------v
-*** TODO Get checked beam migrations working to simplify boilerplate, refactoring
+*** DONE Get checked beam migrations working to simplify boilerplate, refactoring
 **** DONE Got auto migration working. See the Simple namespace -- works fine.
 **** DONE BM.defaultMigratableDbSettings can't match type. Too general?
 ***** A: Tried (This just means I can't SQL-ize my newtype)
@@ -824,7 +823,7 @@ No instance for (BM.HasDefaultSqlDataType
 **** Q: What should I do re storing maps, lists other than ad-hoccin' it?
 **** TODO Need a programmatic way to create tables for the eval functions, i.e. a column for each move suggestion.
 ***** I could of course make them (action,value) pairs but seems like they should be inlined.
-*** TODO create naiive UCT player, with rollout
+*** DONE create naiive UCT player, with rollout
 **** TODO Create product (vs sum) version of possible moves, to be neural net learning freindly.
 **** Q: How do win values get updated to parents from child nodes? Sum, right?
 ***** But is it like "wins from the perspective of who is playing this node?" I think so?
@@ -954,6 +953,10 @@ nextMove <- showMove game10 nextMove
 ***** Not quite right, as we assume other opponents have perfect information of our moves. But it's conservative, i.e. assume we know nothing and they know everything, what's the best move?
 *** DONE Generalize UCT to not be Paris-specific
 **** I.e. Want to play out bridge hands now. A bit easier to test if it's generating sensible play, as I can compare to double-dummy solvers etc.
+*** v---------- ACTIVE ----------v
+*** TODO minimalist NN learning of DebugGame
+**** training inspired by static-mnist/Common.hs, specific model in like static-mnist-mlp/Main.hs
+**** Probably do a tiny MLP for this.
 *** TODO Port Paris to the generalized UCT
 *** TODO Set clock timeouts for AI instead of # of iterations.
 **** i.e. if a simpler technique works given same amount of time we want to know that.
