@@ -20,6 +20,7 @@ executable deep-games
   main-is:             Main.hs
   other-modules:       Bridge
                      , DebugGame
+                     , DebugGameTrain
                      , PersistDebugGame
                      , Paris
                      , Persist

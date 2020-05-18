@@ -1,6 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FunctionalDependencies #-}
 
+-- Here just to make sure I can compile Hasktorch in this project
+
 module Main where
 
 import Control.Monad (when)

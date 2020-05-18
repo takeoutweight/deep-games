@@ -1,0 +1,11 @@
+packages:
+    deep-games.cabal
+    ../hasktorch/codegen/*.cabal
+    ../hasktorch/libtorch-ffi/*.cabal
+    ../hasktorch/hasktorch/*.cabal
+
+package libtorch-ffi
+  extra-include-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/include/torch/csrc/api/include
+  extra-include-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/include
+  extra-lib-dirs: /Users/nathan/src/haskell/hasktorch/deps/libtorch/lib
+  ghc-options: -optl-Wl,-rpath,/Users/nathan/src/haskell/hasktorch/deps/libtorch/lib

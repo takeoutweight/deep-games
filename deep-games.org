@@ -504,6 +504,90 @@ Ok, two modules loaded.
 ***** In another project I see TODO: add support for multiple packages in a directory
 ****** This might be cabal at fault (or at least a bad interaction w/ cabal)
 ./Distribution/Client/ProjectOrchestration.hs:532:9
+**** FIXED not building again after revisiting again. <2020-05-17 Sun>
+***** FIXED Ghcup failing (CAUTION never should have been this version!!)
+ghcup set 8.4.4
+Unsupported meta file format, run: ghcup upgrade
+Internal error: not enough arguments given to array_contains
+****** Did that, now:
+/Users/nathan/.ghcup/bin/ghcup: line 1: a: No such file or directory
+****** Hah, my script is now:
+<a href="/haskell/ghcup/master/ghcup">Moved Permanently</a>.
+THIS PROJECT IS NOW DEPRECATED IN FAVOR OF ghcup-hs
+****** Just installing again as per https://gitlab.haskell.org/haskell/ghcup-hs
+****** But got:
+ghcup --help
+dyld: Library not loaded: /usr/local/opt/xz/lib/liblzma.5.dylib
+  Referenced from: /Users/nathan/.ghcup/bin/ghcup
+  Reason: Incompatible library version: ghcup requires version 8.0.0 or later, but liblzma.5.dylib provides version 6.0.0
+Abort trap: 6
+****** Just deleted THAT ghcup trying the shell command
+curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+****** Which is installing GHC 8.8.3 and Cabal and the whole deal again (ugh lol)
+****** Seemed to find all my old ghc versions though
+***** FIXED cabal v2-repl static-mnist fails cabal: Could not resolve dependencies:
+****** A: Was an upper bound thrown on show-prettyprint by a trustee :( fixed it via allow-newer
+****** due to:
+After searching the rest of the dependency tree exhaustively, these were the
+goals I've had most trouble fulfilling: trifecta, show-prettyprint, codegen
+[__2] rejecting: trifecta-2 (conflict: show-prettyprint => trifecta>=1.6 &&
+<1.8)
+****** This was http://www.stackage.org/snapshot/lts-14.7
+which is base-4.12.0.0
+https://www.snoyman.com/base
+which is ghc 8.6.*
+****** Just removing this line from the freeze file
+             trifecta ==2,
+****** Just adding .BAK to the cabal.project.freeze file
+****** NOTE Ah! Supposed to be 8.6.5? (doesn't help)
+ghcup set 8.6.5
+****** Q: Seems like show-prettyprint needs trifecta <1.8? But sure doesn't look that way on LTS 14.7??
+******* But uh, does seem that way on hackage!
+  build-depends:       base >= 4.8 && < 5
+                     , trifecta >= 1.6 && <1.8
+******* But hackage's own build log has it w/o the upper bound?!
+https://hackage.haskell.org/package/show-prettyprint-0.3.0.1/reports/1
+******* I wonder if this is one of those revisions breaking things sort of deal?
+******** Has an upper bound on hackage:
+https://hackage.haskell.org/package/show-prettyprint
+******** But not in its repo?
+https://github.com/quchen/show-prettyprint/blob/master/show-prettyprint.cabal
+******* Yep! Broken by phadej: on April 14 2020. :(
+https://hackage.haskell.org/package/show-prettyprint-0.3.0.1/revisions/
+******* Trying:
+--allow-newer=trifecta
+******** Gets things going again at least!
+******** Apparently can put this in ~/.cabal/config
+allow-newer: show-prettyprint:trifecta
+****** FIXED But this: doesn't work (what dante tries to do, the builddir screws it up, works fine w/o it (!?))
+cabal new-repl examples --builddir=dist/dante
+******* Ah yeah, this is the same issue -- can't build deps manually, have to use the builtin script. So can't use a different build dir.
+******* Can't just copy it, sadly, tries to rebuild anyway.
+******* builddir seems to be hardcoded in dante-methods-alist
+    (new-build "cabal.project.local" ("cabal" "new-repl" (or dante-target (dante-package-name) nil) "--builddir=dist/dante"))
+******* So should have one
+    (v2-build-same-builddir "cabal.project.local" ("cabal" "v2-repl" (or dante-target (dante-package-name) nil) "--builddir=dist-newstyle"))
+******* Says:
+Value: `((v2-build-same-builddir "cabal.project.local"
+                          ("cabal" "v2-repl"
+                           (or dante-target
+                               (dante-package-name)
+                               nil)
+                           "--builddir=dist-newstyle")))
+******* So no quote in this form I guess
+******* Yeah just created my own whole custom cabal instruction. Still doesn't build
+***** FIXED need correct build target
+dante-load-message (("/var/folders/kp/ffm095r93kncw4vmk3hw3q7w0000gn/T/dante71740pon.hs" "31:1-32" "error:" "    Could not load module ‘Data.Reflection’
+    It is a member of the hidden package ‘reflection-2.1.5’.
+    Perhaps you need to add ‘reflection’ to the build-depends in your .cabal file.
+****** Maybe it's like somehow loading the file in the context of examples package, not the sub-library the file belongs in? Should be knowable due to hs-source-dirs
+****** A: Yeah, change dante-target to static-mnist-mlp like:
+(setq-local dante-target "static-mnist-mlp")
+***** FIXED dante doesn't work on deep-games
+****** It tries a new build dir which again fails because it can't build hasktorch from scratch.
+"cabal" "new-repl" "deep-games" "--builddir=dist/dante"
+****** But why would a new build dir require rebuilding libtorch-ffi?
+****** A: So just, again, pulling in the dir-locals to force build directory to dist-newstyle
 *** DONE Persist games on disk
 **** DONE Maybe nice to take another crack via sqlite, even though files is probably fine.
 **** Q: Do I do store one column per move type for storing probabilities? OR split into move/probaility?
@@ -956,7 +1040,7 @@ nextMove <- showMove game10 nextMove
 *** v---------- ACTIVE ----------v
 *** TODO minimalist NN learning of DebugGame
 **** training inspired by static-mnist/Common.hs, specific model in like static-mnist-mlp/Main.hs
-**** Probably do a tiny MLP for this.
+**** Probably do a tiny MLP for this. looking at mnist-mlp/Main.hs
 *** TODO Port Paris to the generalized UCT
 *** TODO Set clock timeouts for AI instead of # of iterations.
 **** i.e. if a simpler technique works given same amount of time we want to know that.
