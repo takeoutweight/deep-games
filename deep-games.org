@@ -90,7 +90,7 @@ legalMoves (defaultState & execTrade2 (Trade2 Yellow Blue) & rotatePlayer & rota
 *** Q: Can we make an "active player's holdings" lens? I should think so?
 **** What about abstracting over public/private? Can I bake that logic into the lens? feel like I could?
 **** i.e. fiddle with public counts first, subtract private only if you are out of publics.
-*** TODO Get things compiling and convenient
+*** DONE Get things compiling and convenient
 **** DONE Installing ghcup
 ***** Needs
 curl g++ gcc gmp make ncurses python3 realpath xz-utils

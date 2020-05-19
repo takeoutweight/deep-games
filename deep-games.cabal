@@ -55,11 +55,13 @@ executable deep-games
                      , jsaddle-wkwebview
                      , jsaddle-warp
                      , lens
+                     , libtorch-ffi
                      , random
                      , MonadRandom
                      , multiset
                      , mtl
                      , random-shuffle
+                     , safe-exceptions
                      , sqlite-simple
                      , string-combinators
                      , text
