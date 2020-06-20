@@ -54,7 +54,7 @@ type HiddenFeatures1 = 256
 data GameData = GameData
 
 gdLength :: GameData -> Int
-gdLength gd = 8
+gdLength gd = undefined
 
 initGameData :: IO (GameData, GameData)
 initGameData = undefined
