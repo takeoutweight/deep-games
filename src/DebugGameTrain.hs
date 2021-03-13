@@ -45,8 +45,8 @@ import qualified Torch.NN                      as NN
 
 type Rows = 28
 type Cols = 28
-type DataDim = Rows TL.* Cols
-type ClassDim = 10
+type DataDim = Rows TL.* Cols --  inputFeatures
+type ClassDim = 10 -- outputFeatures
 type BatchSize = 512
 type HiddenFeatures0 = 512
 type HiddenFeatures1 = 256
@@ -120,7 +120,7 @@ instance ( KnownNat inputFeatures
          , TFac.RandDTypeIsValid device dtype
          )
   => NN.Randomizable (MLPSpec inputFeatures outputFeatures hiddenFeatures0 hiddenFeatures1 dtype device)
-                    (MLP     inputFeatures outputFeatures hiddenFeatures0 hiddenFeatures1 dtype device)
+                     (MLP     inputFeatures outputFeatures hiddenFeatures0 hiddenFeatures1 dtype device)
  where
   sample MLPSpec {..} =
     MLP

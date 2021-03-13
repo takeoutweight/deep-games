@@ -67,6 +67,10 @@
 *** Maybe the idea still works: find games that are measured as correlated, then counter-factually explode them at various places (Since downstream moves are highly correlated to upstream moves, generating /more/ of those might lead to better pin-pointing of the actual moves that are correlated).
 *** It has to have some generalization pressure though, otherwise you're just learning "In this specific game state, these moves are good moves" which is the original learning task. This is more "This move looks like it will have the same outcome as that move, regardless of whether it's good or not."
 ** Programming tasks
+*** HOWTO repl
+**** cabal v2-repl deep-games
+**** :l DebugGameTrain (you get the right imports)
+**** C-c , for info at point (.dir-locals.el already set up to handle this via dante)
 *** DONE Enumerate legal moves from current board position
 legalMoves (defaultState & execTrade2 (Trade2 Yellow Blue) & rotatePlayer & rotatePlayer)
 *** DONE Randomly initialize player holdings
@@ -1038,9 +1042,17 @@ nextMove <- showMove game10 nextMove
 *** DONE Generalize UCT to not be Paris-specific
 **** I.e. Want to play out bridge hands now. A bit easier to test if it's generating sensible play, as I can compare to double-dummy solvers etc.
 *** v---------- ACTIVE ----------v
-*** TODO minimalist NN learning of DebugGame
+*** TODO minimalist NN learning of DebugGame, see DebugGameTrain
 **** training inspired by static-mnist/Common.hs, specific model in like static-mnist-mlp/Main.hs
 **** Probably do a tiny MLP for this. looking at mnist-mlp/Main.hs
+**** Just learning what's going on:
+***** MLPSpec and MLP both seem like type-level datastructures holding config, essentially. 
+***** I think the spec holds the "arguments" like "number of input features as a type-level Nat" while MLP holds TNN.Linear which must be an actual neural net architecture?. 
+***** They're tied together via NN.Randomizable. guessing you "sample" the spec and get back an MLP (maybe a particular initialization of weights?)
+***** Looking at error count. It bool is explicitly 0 or 1 and sumAll treats them like Nats (eg not like OR via max).
+****** argMax 
+***** error count I think is purely for logging output? Not sure why it's always computed together w/ loss as tuple. I guess it's because you calculate the prediction once and share it w/ the loss and error count fns.
+***** TTO.runStep seems to be the magic function to adjust the weights, presumaably via the TTO.Optimizer arg.
 *** TODO Port Paris to the generalized UCT
 *** TODO Set clock timeouts for AI instead of # of iterations.
 **** i.e. if a simpler technique works given same amount of time we want to know that.
