@@ -70,6 +70,7 @@
 *** HOWTO repl
 **** cabal v2-repl deep-games
 **** :l DebugGameTrain (you get the right imports)
+**** :set -fno-warn-partial-type-signatures
 **** C-c , for info at point (.dir-locals.el already set up to handle this via dante)
 *** DONE Enumerate legal moves from current board position
 legalMoves (defaultState & execTrade2 (Trade2 Yellow Blue) & rotatePlayer & rotatePlayer)
@@ -1052,7 +1053,16 @@ nextMove <- showMove game10 nextMove
 ***** Looking at error count. It bool is explicitly 0 or 1 and sumAll treats them like Nats (eg not like OR via max).
 ****** argMax 
 ***** error count I think is purely for logging output? Not sure why it's always computed together w/ loss as tuple. I guess it's because you calculate the prediction once and share it w/ the loss and error count fns.
-***** TTO.runStep seems to be the magic function to adjust the weights, presumaably via the TTO.Optimizer arg.
+***** TTO.runStep seems to be the magic function to adjust the weights, presumably via the TTO.Optimizer arg.
+***** Image.initMnist returns a pair. training and held-out test.
+**** TODO GameData ~ training data, eg image,label pairs
+***** training data, mid-game state snapshot. We're already storing this info in the db.
+***** Label, next move UCT probabilities AND an ultimate win bit.
+**** TODO length ~ number of labeled examples
+**** TODO Make CPUTensors of game state ~ getImage
+***** They can just be [Float] (in the db they're Beam Double).
+*** TODO Testing?
+**** Generate test persist + replay - same end states. (full and partial games)
 *** TODO Port Paris to the generalized UCT
 *** TODO Set clock timeouts for AI instead of # of iterations.
 **** i.e. if a simpler technique works given same amount of time we want to know that.
