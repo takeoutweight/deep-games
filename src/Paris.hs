@@ -816,10 +816,10 @@ playout explore gs nstate =
                    True -> (+ 1)
                    False -> id))))))
 
--- A hack to avoid the case where we have a bunch of 1.0 propability moves and
+-- A hack to avoid the case where we have a bunch of 1.0 probability moves and
 -- pick one with a lower explore count.  The right math solution would probably
--- be some approximation of credibility interval and, if we're pessimisitic,
--- chooseing the best 25% confidence interval estimated win rate.
+-- be some approximation of credibility interval and, if we're pessimistic,
+-- choosing the best 25% confidence interval estimated win rate.
 bestMoveEpsilon = 1 % 50
 
 bestLine :: NodeState -> [Action]

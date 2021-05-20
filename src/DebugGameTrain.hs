@@ -214,10 +214,8 @@ train initModel initOptim forward learningRate ptFile = do
       <> show (testLoss / realToFrac (gdLength testData))
       <> ". Test error-rate: "
       <> show (testError / realToFrac (gdLength testData))
-    
     TSer.save (THL.hmap' TTP.ToDependent . TTP.flattenParameters $ epochModel') ptFile
     return (epochModel', epochOptim')
-    
  where
   computeLossAndErrorCount
     :: forall n (device :: (Torch.Device.DeviceType, Nat))

@@ -68,7 +68,7 @@ instance VX.IsoHKD DFI.Identity a where
   unHKD = DFI.Identity
   toHKD (DFI.Identity x) = x
 
--- I didn't need these extra constraints before, maybe somethign changed in Vinyl in the last X years.
+-- I didn't need these extra constraints before, maybe something changed in Vinyl in the last X years.
 instance {-# OVERLAPS #-} ( VT.RecAll DFI.Identity rs Show
                           , V.RMap rs
                           , V.RecordToList rs
@@ -138,12 +138,12 @@ newtype RandomTuple f =
 
 data ANil = ANil deriving Generic
 
--- no suprise, works the same :kind! (Rep (Tup Int))
+-- no surprise, works the same :kind! (Rep (Tup Int))
 newtype Tup a = Tup (a, ANil) deriving Generic via (a,ANil)
 
 type TupleWithNilT f = (B.C f Int, ANil)
 
---  this one leaves ANil opaque as aa Rec0
+--  this one leaves ANil opaque as a Rec0
 newtype TupleWithNil f = TupleWithNil (TupleWithNilT f)
 --  deriving Generic via (TupleWithNilT f)
 

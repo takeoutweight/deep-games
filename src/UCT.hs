@@ -112,9 +112,9 @@ playout explore logic gs nstate =
            ( winVec
            , (nstate & (children . moves) %~ (Map.insert action childState)))
 
--- A hack to avoid the case where we have a bunch of 1.0 propability moves and
+-- A hack to avoid the case where we have a bunch of 1.0 probability moves and
 -- pick one with a lower explore count.  The right math solution would probably
--- be some approximation of credibility interval and, if we're pessimisitic,
+-- be some approximation of credibility interval and, if we're pessimistic,
 -- chooseing the best 25% confidence interval estimated win rate.
 bestMoveEpsilon = 1 / 200
 
@@ -122,7 +122,7 @@ winRate :: NodeState act -> Double
 winRate node = (_wins node) / (fromIntegral (_visited node))
 
 -- The best sequence of moves through the given tree. Choose all winrates w/in
--- bestMoveEpsilon and pick the most visted. (probably a more principled way to do
+-- bestMoveEpsilon and pick the most visited. (probably a more principled way to do
 -- this)
 bestLine :: NodeState act -> [act]
 bestLine nstate =
